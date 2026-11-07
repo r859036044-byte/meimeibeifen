@@ -357,6 +357,7 @@ public partial class MainMenuRuntime : Control
 
     public override void _ExitTree()
     {
+        CleanupOpBgmBus();
         // 取消訂閱（Unity 的 OnDisable）
         SettingsManager.OnVolumeChanged -= ApplyVolumes;
 

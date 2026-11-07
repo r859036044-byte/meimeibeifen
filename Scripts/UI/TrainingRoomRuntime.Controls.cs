@@ -88,6 +88,9 @@ public partial class TrainingRoomRuntime
         // 摸乳頭：右鍵點乳頭取消
         if (_nipL.On && IsPointOnLayer("奶頭2", w)) { CancelNipple("NL"); return true; }
         if (_nipR.On && IsPointOnLayer("奶頭1", w)) { CancelNipple("NR"); return true; }
+        // 右鍵點胸部也可以取消摸乳頭（胸2＝左邊那顆／奶頭2、胸1＝右邊那顆／奶頭1）
+        if (_nipL.On && IsPointOnLayer("胸2", w)) { CancelNipple("NL"); return true; }
+        if (_nipR.On && IsPointOnLayer("胸1", w)) { CancelNipple("NR"); return true; }
         // 舔：右鍵點正在舔的地方停止
         if (_lickOn && IsOnLickTarget(w)) { StopLick(); return true; }
         // 舌頭：右鍵點嘴巴停止
@@ -114,19 +117,37 @@ public partial class TrainingRoomRuntime
     //  小穴呼吸擴張（m腿/小穴）
     // ════════════════════════════════════════════════════════════════
 
+    [Export] public bool PussyBindToLegs = true;   // 小穴與腿交接的左右邊緣，跟著旁邊那條腿一起呼吸／擺動（不露縫）
     ShaderMaterial _pussyBreathMat;
+
+    /// <summary>小穴左右邊緣（跟腿的交接處）相對小穴本身的位移：用腿此刻實際的變換（含擺動旋轉）算出來。</summary>
+    void PussyLegBind(Control pussy, out Vector2 sdL, out Vector2 sdR)
+    {
+        Vector2 jL = new Vector2(885f, 1430f), jR = new Vector2(1094f, 1430f);
+        sdL = Vector2.Zero; sdR = Vector2.Zero;
+        if (!PussyBindToLegs) return;
+        if (Layers.TryGetValue("m腿/腿2", out var legL) && legL != null) sdL = legL.GetTransform() * jL - pussy.GetTransform() * jL;
+        if (Layers.TryGetValue("m腿/腿1", out var legR) && legR != null) sdR = legR.GetTransform() * jR - pussy.GetTransform() * jR;
+    }
 
     void UpdatePussyBreath()
     {
         if (!Layers.TryGetValue("m腿/小穴", out var c) || c == null) return;
         if (_pussyBreathMat == null)
         {
+            if (c.Material is ShaderMaterial exM)
+            {   // 小穴已經掛了「中心撐開」材質（BuildUI.cs）：不覆蓋，只把腿綁定的位移餵給它
+                if (_centerStretchShader != null && exM.Shader == _centerStretchShader) { Vector2 l_, r_; PussyLegBind(c, out l_, out r_); exM.SetShaderParameter("sd_l", l_); exM.SetShaderParameter("sd_r", r_); }
+                return;
+            }
             if (c.Material != null) return;   // 已經有別的 shader 就不覆蓋
             var sh = new Shader
             {
                 Code = @"shader_type canvas_item;
 uniform float amount = 0.0;     // 目前上緣撐開比例
 uniform float curve_pow = 1.6;
+uniform vec2 sd_l = vec2(0.0);   // 左腿（腿2）在交接處相對小穴的位移（px）：小穴左緣貼著它動
+uniform vec2 sd_r = vec2(0.0);   // 右腿（腿1）在交接處相對小穴的位移（px）
 varying vec4 vcol;
 void vertex() { vcol = COLOR; }
 void fragment() {
@@ -136,7 +157,9 @@ void fragment() {
     float t  = clamp((UV.y - 1321.0 * px.y) / (258.0 * px.y), 0.0, 1.0);   // 0＝上緣，1＝下緣
     float w  = amount * pow(1.0 - t, curve_pow);                            // 上面撐多、下面撐少
     vec2 uv  = vec2(cx + (UV.x - cx) / (1.0 + w), UV.y);
-    COLOR = texture(TEXTURE, uv) * vcol;
+    float xp_ = UV.x / px.x;
+    vec2 sd_ = sd_l * (1.0 - smoothstep(885.0, 960.0, xp_)) + sd_r * smoothstep(1020.0, 1094.0, xp_);   // 左右邊緣各自跟著旁邊的腿動，中間不動（呼吸時不露縫）
+    COLOR = texture(TEXTURE, uv - sd_ * px) * vcol;
 }"
             };
             _pussyBreathMat = new ShaderMaterial { Shader = sh };
@@ -145,5 +168,9 @@ void fragment() {
         float inhale = (Mathf.Sin(_breathTime * Mathf.Pi * 2f) + 1f) * 0.5f;   // 跟呼吸同步 0~1
         _pussyBreathMat.SetShaderParameter("amount", PussyBreathExpand * inhale);
         _pussyBreathMat.SetShaderParameter("curve_pow", PussyBreathCurvePow);
+        // 綁定：小穴左右邊緣（跟腿的交接線）跟著旁邊那條腿一起動／轉，呼吸時不會露出縫
+        PussyLegBind(c, out var sdL, out var sdR);
+        _pussyBreathMat.SetShaderParameter("sd_l", sdL);
+        _pussyBreathMat.SetShaderParameter("sd_r", sdR);
     }
 }

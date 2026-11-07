@@ -65,7 +65,8 @@ public partial class GameFlowManager : Node
         // Godot 的 stretch mode "canvas_items" + aspect "keep" 已自動處理等比縮放
         // 不需要像 Unity 手動計算 viewport
         // 若需要視窗模式下鎖定比例，可在此處理
-        if (!DisplayServer.WindowGetMode().HasFlag(DisplayServer.WindowMode.Fullscreen))
+        var mode = DisplayServer.WindowGetMode();
+        if (mode != DisplayServer.WindowMode.Fullscreen && mode != DisplayServer.WindowMode.ExclusiveFullscreen)
         {
             var winSize = DisplayServer.WindowGetSize();
             int w = winSize.X;

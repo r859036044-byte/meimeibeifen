@@ -163,10 +163,20 @@ public partial class NovelReader
         _dailyVoice.Stream = _voiceQueue.Dequeue();
         _dailyVoice.Play();
     }
+    // 語音提前播放：台詞一開始處理就播，不等鏡頭/淡入動畫跑完才開始打字
+    bool _voicePre;
+    string _voicePreText;
+    public void PreplayVoice(string speaker, string text)
+    {
+        PlayDailyVoice(speaker, text);
+        _voicePre = true;
+        _voicePreText = text;
+    }
     void UpdateDailyVoice()
     {
         if (_dailyVoice == null) return;
-        if (IsFast || !IsInstanceValid(_box) || !_box.IsVisibleInTree()) { StopDailyVoice(); return; }
+        // 提前播放期間對話框可能還沒顯示，不能因此把語音停掉
+        if (IsFast || !IsInstanceValid(_box) || (!_voicePre && !_box.IsVisibleInTree())) { StopDailyVoice(); _voicePre = false; return; }
         _dailyVoice.VolumeLinear = SettingsManager.Instance?.VoiceVolume ?? 1f;
         _dailyVoice.StreamPaused = Paused;
     }

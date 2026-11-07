@@ -23,6 +23,9 @@ public partial class MainMenuRuntime : Control
 	// 立繪貼圖的資源名稱（Unity 用 sprite.name 比對，Godot 需自行記錄）
 	private string _charBodyTexName, _charFaceTexName, _char2TexName;
 
+	// Spine 立繪（掛在 _charBodyImage 底下，跟著身體圖的位置／縮放／淡入淡出走）
+	private SpineChar _spineChar;
+
 	// 立繪預設尺寸（Unity 的 sizeDelta 650x1338）
 	private static readonly Vector2 CharDefaultSize = new Vector2(650f, 1338f);
 
@@ -78,6 +81,10 @@ public partial class MainMenuRuntime : Control
 			{
 				faceName = name.Trim();
 			}
+
+			// 要顯示圖片立繪 → 先關掉 Spine 立繪
+			if (_spineChar != null && (bodyName != null || faceName != null))
+				_spineChar.Visible = false;
 
 			bool hasBody = false;
 			bool hasFace = false;
@@ -202,7 +209,51 @@ public partial class MainMenuRuntime : Control
 			SetScale(_charBodyImage, 1f);
 			SetScale(_charFaceImage, 1f);
 			SetScale(_char2Image,    1f);
+			if (_spineChar != null) _spineChar.Visible = false;
 		}
+	}
+
+	// ── Spine 立繪 ──────────────────────────────────────────────
+	static bool HasSpine(PrologueLine l)
+		=> !string.IsNullOrWhiteSpace(l.chOutfit) || !string.IsNullOrWhiteSpace(l.chSkin)
+		|| !string.IsNullOrWhiteSpace(l.chHair)   || !string.IsNullOrWhiteSpace(l.chSocks)
+		|| !string.IsNullOrWhiteSpace(l.chFace)   || !string.IsNullOrWhiteSpace(l.chAnim);
+
+	/// <summary>套用這一行的 Spine 設定；尚未顯示時淡入（instant=true 則直接顯示）</summary>
+	async Task SpineApply(PrologueLine l, bool instant, CancellationToken ct = default)
+	{
+		if (_spineChar == null || !_spineChar.EnsureLoaded()) return;
+
+		string outfit = !string.IsNullOrWhiteSpace(l.chOutfit) ? l.chOutfit : l.chSkin;
+		_spineChar.Apply(outfit, l.chHair, l.chSocks, l.chFace, l.chAnim);
+
+		// 已經在畫面上 → 只換外觀，不重新淡入
+		if (_spineChar.Visible && GetAlpha(_charBodyImage) > 0.01f) return;
+
+		// 圖片立繪還在 → 先清掉
+		if (_charBodyImage.Texture != null || _charFaceImage.Texture != null)
+		{
+			_charBodyImage.Texture = null;
+			_charFaceImage.Texture = null;
+			_charBodyTexName = null;
+			_charFaceTexName = null;
+			_charFaceImage.Modulate = new Color(1f, 1f, 1f, 0f);
+			_charBodyImage.Modulate = new Color(1f, 1f, 1f, 0f);
+		}
+
+		_spineChar.Visible = true;
+		if (instant)
+		{
+			_charBodyImage.Modulate = Colors.White;
+			return;
+		}
+
+		float startA = GetAlpha(_charBodyImage);
+		await Lerp(FF(0.5f), p =>
+		{
+			_charBodyImage.Modulate = new Color(1f, 1f, 1f, Mathf.Lerp(startA, 1f, p));
+		}, ct);
+		_charBodyImage.Modulate = Colors.White;
 	}
 
 	// ── 選擇性隱藏立繪 ──────────────────────────────────────────
@@ -812,6 +863,14 @@ public partial class MainMenuRuntime : Control
 		public string showCG10; public string hideCG10; public string cgScale10; public string cgX10; public string cgY10;
 		public string showCH;   // 立繪顯示（Resources/Character/<name>）
 		public string hideCH;   // 非空 → 立繪淡出
+		// Spine 立繪：只要有下面任何一個欄位，就改用 Spine 角色顯示（沒寫的欄位維持上一個狀態）
+		public string chOutfit; // 服裝皮膚：school / school2 / shirt / sleep / sleep2 / nude
+		public string chSkin;   // chOutfit 的別名
+		public string chHair;   // 髮型動畫：twin / long / none（無後髮）
+		public string chSocks;  // 襪子動畫：white / black / none
+		public string chFace;   // 表情動畫：angry1 / laugh / cry ...
+		public string chAnim;   // 身體基礎動畫（預設 idle）
+		public bool chAsync;    // true → 立繪位移/縮放不等待、也不受優先 fadeout 延後（邊移動邊白屏/邊打字）
 		public string chScale;  // 立繪縮放（"1.5" 或 "1.5, 30" 帶幀數）
 		public string chX;      // 立繪X位移（"200" 或 "-200, 60" 帶幀數）
 		public string chY;      // 立繪Y位移（"100" 或 "-100, 60" 帶幀數）
@@ -827,6 +886,7 @@ public partial class MainMenuRuntime : Control
 		public string bgAnim;   // 背景動畫（"approach"=靠近效果，"stop"=停止）
 		public string breath;   // 第一人稱呼吸晃動（"on" / "on, 強度" / "off"），套用在全部 CG 圖層
 		public float autoNext;  // 自動跳下一行（幀數，60=1秒，0或不填=需要點擊）
+		public bool cgAsync;     // true → CG 鏡頭移動不等待，邊運鏡邊打字（台詞結束後才等鏡頭跑完）
 		public string fadeout;       // 非空 → 畫面淡入黑屏（預設黑色，向下相容）
 		public string fadeoutBlack;  // "fadeout black": "幀數" → 黑屏
 		public string fadeoutWhite;  // "fadeout white": "幀數" → 白屏

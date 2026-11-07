@@ -66,7 +66,7 @@ public partial class TrainingRoomRuntime : Node
         "表情/下睫毛1","表情/下睫毛2",
         "眼角1","眼角2",
         "表情/鼻子","表情/嘴巴","表情/腮紅",
-        "笑","笑2","小嘴","吐舌","張嘴1","張嘴2","斜動嘴","抖動嘴","小嘴吐舌",
+        "笑","笑2","小嘴","吐舌","張嘴1","張嘴2","斜動嘴","抖動嘴","小嘴吐舌","小嘴巴",
 
         "胸1","胸2","奶頭1","奶頭2",
         "手2",
@@ -77,6 +77,7 @@ public partial class TrainingRoomRuntime : Node
         // 小穴→內褲(衣服1)→衣服(衣服2)：內褲蓋在小穴上、衣服蓋在內褲上；三者都在前髮之下
         "腿/小穴",
         "內褲",
+        "蝴蝶結",     // 內褲上的蝴蝶結（整張畫布對位，疊在內褲正上方）
         // 使用者要求：衣服要在 M 腿小穴與肚子（插入用疊層）上面 → 這兩層搬到衣服之前
         "m腿/腿底",   // 出血純色底：M 系列最底（在小穴下面）
         "m腿/小穴",
@@ -85,10 +86,13 @@ public partial class TrainingRoomRuntime : Node
         // 衣服拆成 3 件：左右兩條帶子在本體「下面」（先畫），再畫本體
         "衣服/左帶","衣服/右帶",
         "衣服",
+        "蝴蝶結2",    // 衣服上的蝴蝶結（疊在衣服正上方）
         // 使用者要求：M 腿的物件都要在裙子（衣服）上面 → 整組 m腿 從「手2」後面搬到「衣服」之後、前髮之前。
         // 這組本來就在手上面（使用者先前要求），搬到更後面後仍然在手上面。
         "m腿/腿1","m腿/腿2","m腿/腳1","m腿/腳2","m腿/足1","m腿/足2",
         "m腿/肛門",   // 肛門放在 M 腿最前面（腿／腳／足上面、前髮下面；原本小穴細節的位置）；mleg_extra 的「m腿/小穴細節」已停用（跟肛門.png 一樣）
+        "m腿/內褲",   // M 腿專用內褲圖（內褲_M.png）：在 M 腿各層、衣服上面；M 腿打開且內褲沒脫才顯示（見 Cloth.cs UpdateClothBump）
+        "表情/眼淚1","表情/眼淚2","表情/眼淚3","表情/眼淚4",   // 眼淚要在前髮下面
         "前髮",
         // 使用者要求眉毛要畫在前髮上面（之前眉毛排在前髮之前，會被前髮蓋住）。
         // Godot 的子節點繪製順序＝陣列順序，越後面加入的越晚畫、疊在越上層，
@@ -100,7 +104,6 @@ public partial class TrainingRoomRuntime : Node
         // 原本寫成 "m腿_小穴"（底線）跟其他 m腿 圖層的 "/" 命名慣例不一致，也讓 basename
         // 規則抓不到對應檔案（見下面 _extraSpritePaths 說明），改成 "m腿/小穴" 統一慣例；
         // Effects.cs 的 _breathLowerSet 裡同一個字串也要一起改，否則兩邊對不上。
-        "表情/眼淚1","表情/眼淚2","表情/眼淚3","表情/眼淚4",
         "表情/小穴水","表情/高潮水",
         // 插入用疊層（Unity 場景物件名稱 → 實際圖檔）：肚子=charuduzi、洞=xiaoxuekaidi、
         // 開1=xiaoxuekai、插入=xiaoxuekai2。之前在 Unity 裡用中文名字找不到，是因為場景檔把
@@ -129,6 +132,12 @@ public partial class TrainingRoomRuntime : Node
     {
         yield return "Backgrounds/bg_LinaiBed_night_room";
         yield return "Backgrounds/bg_LinaiBed_night_bed";
+        // 進房間後才同步載入、之前沒列進預載的貼圖（被子、M 腿內褲邊線／裁切腿、各種游標與小圖示）：一併預載，避免黑屏／進場瞬間卡頓
+        foreach (var extra in new[] {
+            "Backgrounds/bg_LinaiBed_night_duvet_covered", "Backgrounds/bg_LinaiBed_night_duvet_kicked",
+            "Sprites/內褲_M_edge", "Sprites/腿1_M_cut", "Sprites/腿2_M_cut",
+            "Sprites/游標", "Sprites/手圖標", "Sprites/蝴蝶結", "Sprites/pinch_hand", "Sprites/舌頭游標", "Sprites/舌頭2" })
+            yield return extra;
 
         foreach (var layerName in LayerOrder)
         {
@@ -164,6 +173,7 @@ public partial class TrainingRoomRuntime : Node
         { "衣服/左帶", "Sprites/衣服_左帶" },
         { "衣服/右帶", "Sprites/衣服_右帶" },
         { "內褲", "Sprites/內褲" },
+        { "m腿/內褲", "Sprites/內褲_M" },
         // M 腿獨立美術（Unity Assets/Resources/Sprites/Meimei/m腿/ 資料夾）跟一般腿同名撞檔
         // （腿1.png/腿2.png/腳1.png/腳2.png/足1.png/足2.png/小穴.png），basename 規則會抓到
         // 一般腿那張圖。已從 Unity 專案複製過來、另存新檔名（後綴 _M）避免撞名，這裡查表指過去。
@@ -421,6 +431,7 @@ public partial class TrainingRoomRuntime : Node
     [Export] public Vector2 ArmAttachPivot2   = new Vector2(0.5f, 0.5f);
     [Export] public Vector2 HandAttachPivot1  = new Vector2(0.5f, 0.5f);
     [Export] public Vector2 HandAttachPivot2  = new Vector2(0.5f, 0.5f);
+    [Export] public float BraidStaticRotDeg = 4f;   // 兩條辮子的固定旋轉：右邊（後髮3）順時針、左邊（後髮2）逆時針各轉幾度，讓辮子和後面的頭髮接起來
     [Export] public Vector2 BraidAttachPivot1 = new Vector2(0.58825f, 0.800313f); // _辮子1（髮根）
     [Export] public Vector2 BraidAttachPivot2 = new Vector2(0.37000f, 0.801563f); // _辮子2（髮根）
     // 辮子「呼吸同步旋轉」的幅度（度），跟上面的錨點一起在 Inspector 微調：

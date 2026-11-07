@@ -20,7 +20,7 @@ public partial class TrainingRoomRuntime
     bool _mouthTongueOut;   // 嘴部舒服度到頂過 → 嘴巴維持吐舌頭
 
     static readonly string[] _tongueFrames = { "Sprites/舌頭1", "Sprites/舌頭2", "Sprites/舌頭3", "Sprites/舌頭2" };
-    static readonly string[] _mouthLayerNames = { "表情/嘴巴", "笑", "笑2", "小嘴", "吐舌", "張嘴1", "張嘴2", "斜動嘴", "抖動嘴", "小嘴吐舌" };
+    static readonly string[] _mouthLayerNames = { "表情/嘴巴", "笑", "笑2", "小嘴", "吐舌", "張嘴1", "張嘴2", "斜動嘴", "抖動嘴", "小嘴吐舌", "小嘴巴" };
 
     bool  _tongueTool;      // 左下角 👅 已選
     bool  _tongueOn;        // 舌頭動作進行中

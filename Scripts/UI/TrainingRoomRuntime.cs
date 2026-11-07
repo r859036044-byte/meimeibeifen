@@ -97,6 +97,9 @@ public partial class TrainingRoomRuntime : Node
 		UpdateClimaxHud();
 		UpdatePlayEnd(dt);   // 射精按鈕（PlayEnd.cs）
 		UpdateBreathing(dt);
+		UpdateBrowOperate(dt);   // 男主操作時眉毛上下反轉（Brow.cs）
+		UpdateEmotes(dt);        // 氣泡表情：心情上升冒愛心／下降冒毛線團（Emote.cs）
+		UpdateTearRings(dt);   // 眼淚圈（TearRings.cs）
 		UpdateClothFollow();   // 衣服跟著身體／胸部變形（要在呼吸算完之後）
 		UpdateStrap();   // 肩帶（Strap.cs）：剛體平移＋旋轉，要在 UpdateClothFollow 之後
 		// 摸胸持續增長高潮度（單手/雙手不同起始間隔、越摸間隔越長），見

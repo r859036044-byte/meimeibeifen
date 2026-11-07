@@ -27,16 +27,31 @@ public partial class TrainingRoomRuntime
     [Export] public string[] MaleSoftLines    = { "（軟掉了1）", "（軟掉了2）", "（軟掉了3）" };      // 勃起度掉到 <30
     [Export] public string[] EndureOkLines    = { "（忍住了1）", "（忍住了2）", "（忍住了3）" };
     [Export] public string[] EndureFailLines  = { "（忍不住了1）", "（忍不住了2）", "（忍不住了3）" };
-    [Export(PropertyHint.Range, "0,100,1")] public float ErectOnPct  = 50f;   // 勃起度 ≥ 這個才勃起
-    [Export(PropertyHint.Range, "0,100,1")] public float ErectOffPct = 30f;   // 勃起度 < 這個就軟掉
-    [Export(PropertyHint.Range, "0,20,0.1")] public float ErectGain = 0.8f;     // 有任何互動時每秒增加的勃起度
-    [Export(PropertyHint.Range, "0,5,0.05")] public float ErectDecay = 0.4f;  // 沒互動時每秒下降
+    [Export(PropertyHint.Range, "0,100,1")] public float ErectOnPct  = 30f;   // 勃起度 ≥ 這個才勃起
+    [Export(PropertyHint.Range, "0,100,1")] public float ErectOffPct = 15f;   // 勃起度 < 這個就軟掉
+    [Export(PropertyHint.Range, "0,30,0.1")] public float ErectGain = 6f;       // 有任何互動時每秒增加的勃起度（黃條，基礎；再乘上連續動作的加速倍率）
+    [Export(PropertyHint.Range, "0,30,0.1")] public float ErectDecay = 2f;      // 停手超過 ErectHoldSec 之後每秒下降（最低降到「自然上升的底」）
+    [Export(PropertyHint.Range, "0,10,0.1")] public float ErectHoldSec = 4f;  // 停手後先撐這麼久才開始下降（操控內褲、動作之間短暫停頓不會掉）
+    [Export(PropertyHint.Range, "0,10,0.1")] public float ErectSeeGain = 1.5f;   // 「看到」的加成：每 1 單位看到的程度（小穴／胸／衣服被拉開、掰腿、內褲撥開…）每秒多增加多少（沒蓋被子時）
+    [Export(PropertyHint.Range, "0,40,1")] public float ErectSeeCap = 15f;      // 「看到」的程度每多 1，自然上升的底最高再多多少
+    [Export(PropertyHint.Range, "0,1,0.05")] public float ErectPrepW = 0.6f;    // 只是準備插入（雞雞出現／靠近／停在入口）時，勃起度上升的權重（它也算在操控，不會軟掉）
+    [Export(PropertyHint.Range, "0,2,0.05")] public float ErectWBreast = 0.5f;  // 只在摸胸／乳頭時的上升權重（加成太快就調小）
+    [Export(PropertyHint.Range, "0,2,0.05")] public float ErectWMouthHead = 0.7f;   // 嘴／摸頭的上升權重
+    [Export(PropertyHint.Range, "0,2,0.05")] public float ErectWB = 1f;         // 摸 B／舔 B 的上升權重
+    [Export(PropertyHint.Range, "0,2,0.05")] public float ErectWThrust = 1.2f;  // 抽插的上升權重
+    [Export(PropertyHint.Range, "0.02,0.3,0.01")] public float ErectSeeHemMax = 0.10f;   // 裙擺拉起到多少（V）算「完全看到」
+    [Export(PropertyHint.Range, "0.02,0.5,0.01")] public float ErectSeeStretchMax = 0.15f;   // 上衣往下拉到多少（V）算「完全看到」
+    [Export(PropertyHint.Range, "0,5,0.05")] public float ErectIdleGain = 0.5f; // 沒蓋被子時，不做任何事也會慢慢增加的底（每秒）
+    [Export(PropertyHint.Range, "0,100,1")] public float ErectIdleMax = 45f;    // 自然增加的底最多到這
+    [Export(PropertyHint.Range, "0,10,0.1")] public float ErectBoostMax = 3f;   // 連續動作的加速倍率上限（每秒增加量 ×(1+倍率)）
+    [Export(PropertyHint.Range, "0,5,0.05")] public float ErectBoostRise = 0.6f; // 連續動作時加速倍率每秒增加多少（越做越快）
+    [Export(PropertyHint.Range, "0,50,0.5")] public float ErectBoostFall = 10f; // 停手之後加速倍率每秒掉多少
     [Export(PropertyHint.Range, "0,30,0.5")] public float PainErectDrain = 12f; // 痛到滿時每秒下降的勃起度
     [Export(PropertyHint.Range, "0,100,1")] public float ErectDropOnEjac = 35f; // 射精後勃起度下降
     [Export(PropertyHint.Range, "0,120,1")] public float FeelCapNoInsert = 40f; // 沒插入時精力最多到這
-    [Export(PropertyHint.Range, "0,20,0.1")] public float FeelRateTouch = 0.6f; // 沒插入、有互動時每秒增加
-    [Export(PropertyHint.Range, "0,20,0.1")] public float FeelRateBase = 1.2f;  // 抽插中每秒增加（最慢）
-    [Export(PropertyHint.Range, "0,30,0.1")] public float FeelRatePerSpeed = 3.5f; // 速度滿檔時額外每秒增加
+    [Export(PropertyHint.Range, "0,20,0.1")] public float FeelRateTouch = 0.125f; // 沒插入、有互動時每秒增加（綠條，非雞雞功能很難升）
+    [Export(PropertyHint.Range, "0,20,0.1")] public float FeelRateBase = 1.25f; // 抽插中每秒增加（最慢；雞雞功能才升得快）
+    [Export(PropertyHint.Range, "0,30,0.1")] public float FeelRatePerSpeed = 3f; // 速度滿檔時額外每秒增加
     [Export(PropertyHint.Range, "0,3,0.05")] public float FeelHoleBoost = 0.8f; // 小穴高潮值 100 時累積速度額外 ×(1+這個)：小穴越舒服越容易射
     [Export(PropertyHint.Range, "0,5,0.05")] public float FeelDecay = 0.8f;     // 沒累積時每秒下降
     [Export(PropertyHint.Range, "0,200,1")] public float FeelBreakRate = 45f;   // 破功（超過 100）後每秒衝多少
@@ -85,6 +100,7 @@ public partial class TrainingRoomRuntime
     }
 
     // ── 狀態 ──
+    float _erectBase, _erectBoost, _erectIdleT;   // 勃起度：自然上升的底／連續動作的加速倍率
     bool _playForced, _ejacDone;
     bool _erectOn;               // 目前是否勃起（有遲滯）
     bool _breaking, _prevBreaking;   // 破功中（精力往 120 衝）
@@ -106,8 +122,21 @@ public partial class TrainingRoomRuntime
 
     int EjacWaves(int n) => Mathf.Max(1, Mathf.RoundToInt(n * _ejacMul));
 
+    /// <summary>「看到多少」0~約 4：裙擺拉起、肩帶拉開、上衣往下拉、掰腿、內褲撥開、內褲脫掉。越高，沒蓋被子時勃起度自己上升越快。</summary>
+    float ExposureScore()
+    {
+        float e = 0f;
+        e += Mathf.Clamp(Mathf.Max(_hemPullA[0], _hemPullA[1]) / Mathf.Max(0.001f, ErectSeeHemMax), 0f, 1f);   // 裙擺拉開 → 小穴看得到
+        e += Mathf.Clamp(Mathf.Max(_rotA[0], _rotA[1]) / Mathf.Max(1f, ClothTopRotMax), 0f, 1f);               // 肩帶拉開 → 胸看得到
+        e += Mathf.Clamp(Mathf.Max(_stA[0], _stA[1]) / Mathf.Max(0.001f, ErectSeeStretchMax), 0f, 1f);         // 上衣往下拉
+        if (_mLegOpen) e += 0.6f;                                                                             // 掰腿
+        if (_mLegOpen && !_pantyGone) e += Mathf.Clamp(_mpA / Mathf.Max(1f, MPantyAsideMaxPx), 0f, 1f);       // 內褲撥開
+        if (_pantyGone) e += 1f;                                                                              // 內褲脫掉
+        return e;
+    }
+
     // ═══════════════ 每幀（Play.cs）：精力／勃起度／精液量 ═══════════════
-    void StepMale(float dt, bool anything, bool thrust, float sThrust)
+    void StepMale(float dt, bool anything, bool thrust, float sThrust, float actW = 1f)
     {
         bool inserted = _jijiPhase == 3 && _jijiStage >= 1;
         bool thrusting = inserted && thrust && _endureT <= 0f;
@@ -142,12 +171,35 @@ public partial class TrainingRoomRuntime
 
         // 勃起度
         float er = _semenLevel * 100f;
-        if (anything) er += ErectGain * dt; else er -= ErectDecay * dt;
+        _erectBase = Mathf.Min(_erectBase, er);                                    // 底不會比現在的值高（射精／被痛扣掉之後底跟著降）
+        float expo = ExposureScore();                                              // 看得到多少：小穴／胸／衣服被拉開、掰腿、內褲撥開…
+        if (DuvetState == 1)
+        {   // 沒蓋被子：自己慢慢增加；看到的越多（expo 越大）增加越快、能升到的底也越高
+            float baseMax = Mathf.Min(90f, ErectIdleMax + ErectSeeCap * expo);
+            _erectBase = Mathf.Min(baseMax, _erectBase + (ErectIdleGain + ErectSeeGain * expo) * dt);
+        }
+        bool prep = _jijiPhase > 0 && _jijiPhase < 3;   // 準備插入（雞雞出現、靠近、停在入口）：正在操控，不算「什麼都不做」
+        bool act = anything || _mpDrag || _pantyDrag || prep;   // 操控內褲（撥開／往下拉）也算有在動作
+        if (act)
+        {
+            float w = anything ? actW : ErectPrepW;   // 動作的權重：摸胸／乳頭比較輕、摸 B／抽插比較重；只是準備插入就用 ErectPrepW
+            if (_mpDrag || _pantyDrag) w = Mathf.Max(w, 0.8f);
+            _erectIdleT = 0f;
+            _erectBoost = Mathf.Min(ErectBoostMax, _erectBoost + ErectBoostRise * Mathf.Min(1f, w) * dt);   // 越做越快（權重低的動作加成累積得慢）
+            er += ErectGain * (1f + _erectBoost) * w * dt;
+        }
+        else
+        {
+            _erectIdleT += dt;
+            _erectBoost = Mathf.Max(0f, _erectBoost - ErectBoostFall * dt);
+            if (_erectIdleT > ErectHoldSec) er = Mathf.Max(_erectBase, er - ErectDecay * dt);   // 停手一下之後才下降，但不低於自然上升的底
+        }
+        if (DuvetState == 1 && er < _erectBase) er = _erectBase;
         er -= PainErectDrain * _pain * dt;
         SetSemenLevel(er / 100f);
         float ep = _semenLevel * 100f;
         if (!_erectOn && ep >= ErectOnPct) _erectOn = true;
-        else if (_erectOn && ep < ErectOffPct)
+        else if (_erectOn && ep < ErectOffPct && !prep)   // 準備插入時不軟（雞雞不會被收起來）
         {
             _erectOn = false;
             if (_jijiPhase > 0) { SayMale(MaleSoftLines); HideJiji(); }   // 軟掉：雞雞收起來
@@ -294,6 +346,7 @@ public partial class TrainingRoomRuntime
         bool ok = Stamina >= EjacBtnFeelPct && SemenStock > 0f && !_ejacRunning && !_insertEjacActive;
         _ejacBtn.Disabled = !ok;
         _ejacBtn.Modulate = ok ? Colors.White : new Color(1, 1, 1, 0.45f);
+        UpdateTissue(dt);
         _endureBtn.Modulate = (_endureT > 0f) ? new Color(0.7f, 1f, 0.7f) : Colors.White;
     }
 

@@ -105,6 +105,17 @@ public partial class MainMenuRuntime : Control
         c.OffsetTop  = -unityY; c.OffsetBottom = -unityY;
     }
 
+    /// <summary>
+    /// 背景位移限制：背景放大到 scale 倍時，最多只能移動 (scale-1)/2 個畫面大小，
+    /// 超過就會露出圖片外的黑邊。scale≤1 時完全不能移動。
+    /// </summary>
+    private static Vector2 ClampBgOffset(Vector2 pos, float scale)
+    {
+        float mx = Mathf.Max(0f, (scale - 1f) * RefWidth  * 0.5f);
+        float my = Mathf.Max(0f, (scale - 1f) * RefHeight * 0.5f);
+        return new Vector2(Mathf.Clamp(pos.X, -mx, mx), Mathf.Clamp(pos.Y, -my, my));
+    }
+
     /// <summary>取得拉伸節點目前的位移（Unity 座標系）</summary>
     private static Vector2 DlgGetStretchOffset(Control c)
         => c == null ? Vector2.Zero : new Vector2(c.OffsetLeft, -c.OffsetTop);
@@ -219,6 +230,11 @@ public partial class MainMenuRuntime : Control
         charRoot.AddChild(_charBodyImage);
         DlgSetCharRect(_charBodyImage, Vector2.Zero, new Vector2(650f, 1338f));
         _charBodyImage.Modulate = new Color(1f, 1f, 1f, 0f);
+
+        // Spine 立繪：掛在身體圖底下（跟著它的位置／縮放／淡入淡出），平常隱藏
+        _spineChar = new SpineChar { Name = "CharSpine", Visible = false };
+        _charBodyImage.AddChild(_spineChar);
+        _spineChar.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 
         // 表情圖層（後建立 → 渲染在上，同級兄弟）
         _charFaceImage = new TextureRect
@@ -637,7 +653,7 @@ public partial class MainMenuRuntime : Control
                 float bgPosY = hasBgY ? 0f : curPos.Y;
                 if (hasBgX) float.TryParse(line.bgX.Trim(), out bgPosX);
                 if (hasBgY) float.TryParse(line.bgY.Trim(), out bgPosY);
-                Vector2 targetBgPos = new Vector2(bgPosX, bgPosY);
+                Vector2 targetBgPos = ClampBgOffset(new Vector2(bgPosX, bgPosY), targetScale.X);
                 bool bgNeedMove = targetScale != curScale || targetBgPos != curPos;
                 if (bgNeedMove)
                 {
@@ -648,7 +664,7 @@ public partial class MainMenuRuntime : Control
                     {
                         float p = Mathf.SmoothStep(0f, 1f, Mathf.Clamp(p01, 0f, 1f));
                         SetScale(_bgImage, startScale.Lerp(targetScale, p));
-                        Vector2 np = startPos.Lerp(targetBgPos, p);
+                        Vector2 np = ClampBgOffset(startPos.Lerp(targetBgPos, p), _bgImage.Scale.X);
                         DlgSetStretchOffset(_bgImage, np.X, np.Y);
                         // BG2 同步
                         SetScale(_bgImage2, _bgImage.Scale);
@@ -723,9 +739,15 @@ public partial class MainMenuRuntime : Control
                 }
                 else
                 {
-                    var clip = LoadAudio("Audio/bgm/" + line.bgm.Trim());
+                    var clip = LoadBgm("Audio/bgm/" + line.bgm.Trim());
                     if (clip != null) { _bgmSource.Stream = clip; SetVol(_bgmSource, BgmVolume * (SettingsManager.Instance?.MusicVolume ?? 1f)); _bgmSource.Play(); }
                 }
+            }
+            // 語音：台詞一開始就播，不等鏡頭／淡入動畫跑完
+            if (!string.IsNullOrEmpty(line.text))
+            {
+                EnsureReader();
+                _reader.PreplayVoice((line.speaker ?? "").Trim(), line.text);
             }
             if (!string.IsNullOrEmpty(line.se))
             {
@@ -818,13 +840,14 @@ public partial class MainMenuRuntime : Control
             {
                 var _cg = GetPrologueCGLayer(line, _li);
                 if (!_foPriority && !string.IsNullOrEmpty(_cg.show))
-                    await FadeCG(_li, _cg.show, true, 0.6f, ct);
+                    await FadeCG(_li, _cg.show, true, 0.6f, ct, _cg);
             }
 
             // CG 位移/縮放平滑過渡（所有層平行執行）— 如果 fadeout 有優先旗標則延後
+            // cgAsync=true → 鏡頭不等待，邊運鏡邊打字；該行台詞結束（點擊後）才會等鏡頭跑完
+            int _cgMoving = 0;
             if (!_foPriority)
             {
-                int _cgMoving = 0;
                 for (int _li = 0; _li < DialogueSystem.CG_LAYER_COUNT; _li++)
                 {
                     if (_cgImages[_li] == null) continue;
@@ -834,7 +857,7 @@ public partial class MainMenuRuntime : Control
                     _cgMoving++;
                     _ = AnimCGLayer(_li, _cg, () => _cgMoving--, ct);
                 }
-                await WaitWhile(() => _cgMoving > 0, ct);
+                if (!line.cgAsync) await WaitWhile(() => _cgMoving > 0, ct);
             }
 
             // 判斷 chScale 是否帶圖名（延後到 showCH 之後執行）
@@ -850,7 +873,7 @@ public partial class MainMenuRuntime : Control
             }
 
             // 立繪位置/大小平滑過渡 — 如果帶圖名則延後，如果 fadeout 有優先旗標則延後
-            if (!_foPriority && !_chScaleDeferred)
+            if ((!_foPriority || line.chAsync) && !_chScaleDeferred)
             {
                 Vector2 curSize = DlgCharSize(_charBodyImage);
                 Vector2 curPos  = DlgCharPos(_charBodyImage);
@@ -875,16 +898,22 @@ public partial class MainMenuRuntime : Control
                 {
                     Vector2 startSize = curSize;
                     Vector2 startPos  = curPos;
-                    await Lerp(FF(chDur), p01 =>
+                    async Task RunChMove()
                     {
-                        float p = Mathf.SmoothStep(0f, 1f, Mathf.Clamp(p01, 0f, 1f));
-                        Vector2 s   = startSize.Lerp(targetSize, p);
-                        Vector2 pos = startPos.Lerp(targetPos, p);
-                        DlgSetCharRect(_charBodyImage, pos, s);
-                        DlgSetCharRect(_charFaceImage, pos, s);
-                    }, ct);
-                    DlgSetCharRect(_charBodyImage, targetPos, targetSize);
-                    DlgSetCharRect(_charFaceImage, targetPos, targetSize);
+                        await Lerp(FF(chDur), p01 =>
+                        {
+                            float p = Mathf.SmoothStep(0f, 1f, Mathf.Clamp(p01, 0f, 1f));
+                            Vector2 s   = startSize.Lerp(targetSize, p);
+                            Vector2 pos = startPos.Lerp(targetPos, p);
+                            DlgSetCharRect(_charBodyImage, pos, s);
+                            DlgSetCharRect(_charFaceImage, pos, s);
+                        }, ct);
+                        DlgSetCharRect(_charBodyImage, targetPos, targetSize);
+                        DlgSetCharRect(_charFaceImage, targetPos, targetSize);
+                    }
+                    // chAsync=true → 立繪在背景移動，不擋住後面的白屏／台詞
+                    if (line.chAsync) _ = RunChMove();
+                    else await RunChMove();
                 }
             }
 
@@ -944,6 +973,7 @@ public partial class MainMenuRuntime : Control
             // 立繪淡入 — 兩個角色同時出現
             if (!_foPriority)
             {
+                if (HasSpine(line)) await SpineApply(line, false, ct);
                 bool hasCH  = !string.IsNullOrEmpty(line.showCH);
                 bool hasCH2 = !string.IsNullOrEmpty(line.showCH2);
                 if (hasCH && hasCH2)
@@ -1029,7 +1059,7 @@ public partial class MainMenuRuntime : Control
                 {
                     var _cg = GetPrologueCGLayer(line, _li);
                     if (!string.IsNullOrEmpty(_cg.show))
-                        await FadeCG(_li, _cg.show, true, 0.6f, ct);
+                        await FadeCG(_li, _cg.show, true, 0.6f, ct, _cg);
                 }
                 // CG 位移/縮放（螢幕遮住狀態，直接設定不需動畫）（多層）
                 for (int _li = 0; _li < DialogueSystem.CG_LAYER_COUNT; _li++)
@@ -1082,6 +1112,7 @@ public partial class MainMenuRuntime : Control
                         DlgSetCharRect(_charFaceImage, np, DlgCharSize(_charFaceImage));
                     }
                 }
+                if (HasSpine(line)) await SpineApply(line, true, ct);
                 if (!string.IsNullOrEmpty(line.showCH))
                     await FadeChar(line.showCH, true, ct);
 
@@ -1191,6 +1222,9 @@ public partial class MainMenuRuntime : Control
                 }
             }
 
+            // ── cgAsync：台詞結束後，若鏡頭還沒跑完，等它跑完再進下一行 ──
+            if (line.cgAsync) await WaitWhile(() => _cgMoving > 0, ct);
+
             // ── 等待 approach 動畫結束（不可跳過）─────────────────────
             await WaitWhile(() => _bgAnimCts != null, ct);
 
@@ -1225,7 +1259,7 @@ public partial class MainMenuRuntime : Control
                     {
                         var _cg = GetPrologueCGLayer(line, _li);
                         if (!string.IsNullOrEmpty(_cg.show))
-                            await FadeCG(_li, _cg.show, true, 0.6f, ct);
+                            await FadeCG(_li, _cg.show, true, 0.6f, ct, _cg);
                     }
                     // CG 位移/縮放（螢幕遮住狀態，直接設定不需動畫）（多層）
                     for (int _li = 0; _li < DialogueSystem.CG_LAYER_COUNT; _li++)
@@ -1278,6 +1312,7 @@ public partial class MainMenuRuntime : Control
                             DlgSetCharRect(_charFaceImage, np, DlgCharSize(_charFaceImage));
                         }
                     }
+                    if (HasSpine(line)) await SpineApply(line, true, ct);
                     if (!string.IsNullOrEmpty(line.showCH))
                         await FadeChar(line.showCH, true, ct);
 
@@ -1463,6 +1498,7 @@ public partial class MainMenuRuntime : Control
     {
         // ① 原本的 Update 邏輯（含提前 return，故抽成獨立方法）
         UpdateDialogueInput((float)delta);
+        UpdateOpBgmEq();
         UpdateBreath((float)delta);
 
         // ② 原本的 LateUpdate 邏輯：即時同步 Inspector 數值到 UI 物件
@@ -1579,6 +1615,8 @@ public partial class MainMenuRuntime : Control
                 float swayY = Mathf.Sin(t * swayFreq * Mathf.Pi * 2f) * swayAmp * swayFade;
 
                 Vector2 np = basePos + new Vector2(0f, swayY);
+                // 限制在放大後多出來的範圍內，避免走路晃動或位移太多時露出圖片外的黑幕
+                np = ClampBgOffset(np, startScale.Lerp(targetScale, p).X);
                 DlgSetStretchOffset(_bgImage,  np.X, np.Y);
                 SetScale(_bgImage, startScale.Lerp(targetScale, p));
                 DlgSetStretchOffset(_bgImage2, np.X, np.Y);
@@ -1592,7 +1630,8 @@ public partial class MainMenuRuntime : Control
             return;
         }
 
-        // 確保最終精確到位
+        // 確保最終精確到位（同樣不超出放大後的範圍）
+        targetPos = ClampBgOffset(targetPos, targetScale.X);
         SetScale(_bgImage, targetScale);
         DlgSetStretchOffset(_bgImage, targetPos.X, targetPos.Y);
         SetScale(_bgImage2, targetScale);

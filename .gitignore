@@ -2,6 +2,7 @@
 .godot/
 .import/
 export_presets.cfg
+Godot/
 
 # Mono / C# .NET
 .mono/

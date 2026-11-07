@@ -86,6 +86,7 @@ public partial class TrainingRoomRuntime
         HadClimaxThisSession = true;
         ClimaxLevel = ClimaxAfterLevel;
         ReactClimax();   // 高潮反應（Play.cs）
+        ShowEmote(EmoteBubble.Kind.Exclaim);
     }
 
     // ════════════════════════════════════════════════════════════════

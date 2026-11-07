@@ -97,11 +97,14 @@ public partial class TrainingRoomRuntime : Node
             {
                 // B（雞雞）：要能「按下去就開始、按住不放持續突破」，所以用 ButtonDown 而不是
                 // Pressed（Pressed 要放開才觸發，沒辦法做按住）。見 Jiji.cs OnJijiHotspotDown。
-                btn.ButtonDown += () => OnHotspotClicked(idx);
+                // 但正在摸 B／舔 B 時再按會取消 → 改成放開沒拖才觸發（ClickDrag.cs），按住上下拖可以調速度。
+                btn.ButtonDown += HotspotBPress;
             }
             else
             {
-                btn.Pressed += () => OnHotspotClicked(idx);
+                // 放開才觸發；按下後拖超過 ClickDragPx 就不算點擊（按住物件上下拖調速度不會被當成點物件）
+                btn.ButtonDown += ClickDragBegin;
+                btn.Pressed += () => { if (!ClickWasDrag()) OnHotspotClicked(idx); };
             }
             btn.MouseEntered += () => { img.Modulate = new Color(0.4f, 1f, 0.5f, 0.95f); HoverTipShowIdx(idx); };
             btn.MouseExited  += () => { img.Modulate = new Color(1f, 1f, 1f, HotspotAlpha); HoverTipHide(); };
@@ -470,6 +473,9 @@ public partial class TrainingRoomRuntime : Node
     public override void _Input(InputEvent @event)
     {
         if (_timingChallengeActive || _endingDay) return;
+        ClickDragInput(@event);   // 點擊／拖曳判斷（ClickDrag.cs）
+        if (TissueInput(@event)) { GetViewport().SetInputAsHandled(); return; }   // 衛生紙模式（Tissue.cs）
+        if (PantyDebugKeys(@event)) return;   // Insert/Home/End：逐項關掉最近的內褲效果找出是哪個造成問題（Tissue.cs 旁的 PantyDebug）
         if (AllAgesLocked)
         {   // 全年齡：只剩 摸頭／蓋被子／捏臉／鏡頭
             if (PinchInput(@event)) { GetViewport().SetInputAsHandled(); return; }
@@ -481,12 +487,14 @@ public partial class TrainingRoomRuntime : Node
         }
         if (_dragTool)   // 拖曳模式：只處理被子／衣服／鏡頭，其他一律無視
         {
+            if (MLegPantyAsideInput(@event)) { GetViewport().SetInputAsHandled(); return; }   // M 腿內褲撥開（MLegPantyAside.cs）：排最前面，不被衣擺／被子搶走
             if (PantyBedInput(@event)) { GetViewport().SetInputAsHandled(); return; }
             if (DuvetInput(@event)) { GetViewport().SetInputAsHandled(); return; }
             if (ClothHemInput(@event) || PantyInput(@event)) { GetViewport().SetInputAsHandled(); return; }
             if (HandleCameraInput(@event)) { GetViewport().SetInputAsHandled(); return; }
             return;
         }
+        if (MLegPantyAsideInput(@event)) { GetViewport().SetInputAsHandled(); return; }   // M 腿內褲撥開（MLegPantyAside.cs）：排最前面，不被衣擺／被子搶走
         if (PinchInput(@event)) { GetViewport().SetInputAsHandled(); return; }   // 捏臉（Pinch.cs）
         HeadPatInput(@event);
         TongueInput(@event);
@@ -514,7 +522,7 @@ public partial class TrainingRoomRuntime : Node
             && _mLegOpen && !IsPointerOverUi() && IsMouseOverMLegPussy(ScreenToWorld(pb.Position)))
         {
             // M 腿模式：點小穴本體＝原本點 B 熱點（摸 B／雞雞靠近／開始插入，按住可突破）
-            OnHotspotClicked(4);
+            HotspotBPress();   // 正在摸 B／舔 B 時延後到放開、沒拖才算點（ClickDrag.cs）
             GetViewport().SetInputAsHandled();
             return;
         }

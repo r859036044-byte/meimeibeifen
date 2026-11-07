@@ -124,7 +124,7 @@ public partial class MainMenuRuntime : Control
     /// cgName 支援 "圖名, 幀數" 格式（幀數 / 60 = 秒數），僅 fadeIn 時解析
     /// </summary>
     private async Task FadeCG(int layer, string cgName, bool fadeIn, float duration = 0.6f,
-        CancellationToken ct = default)
+        CancellationToken ct = default, DialogueSystem.CGLayerCmd? initCmd = null)
     {
         if (layer < 0 || layer >= _cgImages.Length) return;
         if (_cgImages[layer] == null || !IsInstanceValid(_cgImages[layer])) return;
@@ -133,12 +133,18 @@ public partial class MainMenuRuntime : Control
 
         // 解析 "圖名, 幀數" 格式（僅 fadeIn 時）
         string actualName = cgName;
+        bool keepTransform = false;
         if (fadeIn && !string.IsNullOrEmpty(cgName) && cgName.Contains(","))
         {
             var parts = cgName.Split(',');
             actualName = parts[0].Trim();
-            if (parts.Length > 1 && float.TryParse(parts[parts.Length - 1].Trim(), out float frames))
-                duration = frames / 60f;
+            // 逗號後的欄位：數字 = 幀數；"keep" = 只換圖，不重設縮放與位置
+            for (int pi = 1; pi < parts.Length; pi++)
+            {
+                string tk = parts[pi].Trim();
+                if (string.Equals(tk, "keep", System.StringComparison.OrdinalIgnoreCase)) keepTransform = true;
+                else if (float.TryParse(tk, out float frames)) duration = frames / 60f;
+            }
         }
 
         if (fadeIn)
@@ -165,8 +171,24 @@ public partial class MainMenuRuntime : Control
                 }
             }
 
-            // 重設位移/縮放（確保新 CG 從預設狀態開始）
-            ResetCGTransform(img);
+            // 重設位移/縮放（確保新 CG 從預設狀態開始）；圖名帶 keep 時保留目前的縮放與位置
+            if (!keepTransform) ResetCGTransform(img);
+
+            // 淡入開始前先決定好大小與位置：寫成 "數值, 0"（0 幀＝立即）的縮放/位移，
+            // 在第一幀就套用，圖片一出現就是最終大小，不會先以預設大小閃一下
+            if (initCmd.HasValue)
+            {
+                var ic = initCmd.Value;
+                var sP = DialogueSystem.ParseValueWithDuration(ic.scale);
+                var xP = DialogueSystem.ParseValueWithDuration(ic.x);
+                var yP = DialogueSystem.ParseValueWithDuration(ic.y);
+                if (!string.IsNullOrEmpty(ic.scale) && sP.durationSec <= 0f && sP.value > 0f)
+                    SetScale(img, sP.value);
+                bool ix = !string.IsNullOrEmpty(ic.x) && xP.durationSec <= 0f;
+                bool iy = !string.IsNullOrEmpty(ic.y) && yP.durationSec <= 0f;
+                if (ix || iy)
+                    ApplyCGOffset(img, ix ? xP.value : img.OffsetLeft, iy ? yP.value : -img.OffsetTop);
+            }
         }
         else
         {

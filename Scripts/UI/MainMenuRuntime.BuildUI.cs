@@ -175,6 +175,11 @@ public partial class MainMenuRuntime : Control
         btnStart.Pressed += () =>
         {
             NovelReader.ClearHistory();
+            if (DemoMode.Enabled)
+            {   // 試玩版：不問要不要看序章，直接開始遊戲進 TrainingRoom
+                StartGameSkipPrologue();
+                return;
+            }
             SetActive(_mainPanel, false);
             SetActive(_skipPanel, true);
         };
@@ -243,14 +248,19 @@ public partial class MainMenuRuntime : Control
         };
         btnSkip.Pressed += () =>
         {
-            GameFlowManager.Instance?.SetSkipPrologue(true);
-            NewGameReset.ResetAll();   // 開新遊戲：所有變數歸零
             SetActive(panel, false);
-            // 跳過劇情 → 進入 TrainingRoom
-            TaskLogger.Run(FadeToBlackAndLoad("TrainingRoom", _lifeCts.Token), "MainMenu.SkipToTrainingRoom");
+            StartGameSkipPrologue();
         };
 
         return panel;
+    }
+
+    /// <summary>開新遊戲、跳過序章劇情，直接進 TrainingRoom（「直接開始」與試玩版的「開始遊戲」共用）。</summary>
+    void StartGameSkipPrologue()
+    {
+        GameFlowManager.Instance?.SetSkipPrologue(true);
+        NewGameReset.ResetAll();   // 開新遊戲：所有變數歸零
+        TaskLogger.Run(FadeToBlackAndLoad("TrainingRoom", _lifeCts.Token), "MainMenu.SkipToTrainingRoom");
     }
 
     // ── 設定面板（純程式繪製版）─────────────────────────────────
@@ -334,8 +344,17 @@ public partial class MainMenuRuntime : Control
             PlayerDataManager.Instance?.SetR18(!on);
             SettingsManager.Instance?.Save();
         };
-        _settingsDropdowns["解析度"].ItemSelected += _ => {
-            modeIndex[0] = 1; _settingsDropdowns["顯示模式"].Select(1);
+        _settingsDropdowns["解析度"].ItemSelected += selected => {
+            modeIndex[0] = 1;
+            _settingsDropdowns["顯示模式"].Select(1);
+            SettingsManager.Instance?.SetResolution((int)selected);
+            SettingsManager.Instance?.SetFullscreen(false);
+            SettingsManager.Instance?.Save();
+        };
+        _settingsDropdowns["顯示模式"].ItemSelected += selected => {
+            modeIndex[0] = (int)selected;
+            SettingsManager.Instance?.SetFullscreen((int)selected == 0);
+            SettingsManager.Instance?.Save();
         };
         Txt(panel, "SettingsHint", "選擇解析度會切換至視窗模式；全螢幕使用螢幕原生大小。", 16, new Color("a7778e"), UAlign.MiddleCenter,
             V2(0.5f, 0.5f), V2(0.5f, 0.5f), V2(0, -272), V2(660, 32));
@@ -362,11 +381,22 @@ public partial class MainMenuRuntime : Control
         _settVoiceSlider.ValueChanged += v => SettingsManager.Instance?.SetVoiceVolume((float)v);
         apply.Pressed += () => {
             var settings = SettingsManager.Instance;
-            settings?.SetLanguage(_settLangIdx[0]); settings?.SetTextSpeed(_settSpdIdx[0]);
-            settings?.SetResolution(_settResIdx[0]); settings?.SetFullscreen(modeIndex[0] == 0);
+            settings?.SetLanguage(_settLangIdx[0]);
+            settings?.SetTextSpeed(_settSpdIdx[0]);
+            if (modeIndex[0] == 0)
+            {
+                settings?.SetResolution(_settResIdx[0]);
+                settings?.SetFullscreen(true);
+            }
+            else
+            {
+                settings?.SetFullscreen(false);
+                settings?.SetResolution(_settResIdx[0]);
+            }
             PlayerDataManager.Instance?.SetR18(!allAgesCheck.ButtonPressed);
             settings?.Save();
-            SetActive(panel, false); SetActive(_mainPanel, true);
+            SetActive(panel, false);
+            SetActive(_mainPanel, true);
         };
         cancel.Pressed += () => {
             SettingsManager.Instance?.SetMusicVolume(originalMusic);
@@ -473,11 +503,7 @@ public partial class MainMenuRuntime : Control
         selector.Select(defIdx);
         if (label == "解析度")
         {
-            var screen = DisplayServer.ScreenGetSize();
-            if (screen.X > 0 && screen.Y > 0)
-                for (int i = 0; i < SettingsManager.Resolutions.Length; i++)
-                    selector.SetItemDisabled(i, SettingsManager.Resolutions[i].X > screen.X || SettingsManager.Resolutions[i].Y > screen.Y);
-            selector.TooltipText = "超過目前螢幕大小的解析度無法選取。";
+            selector.TooltipText = "切換視窗解析度（全螢幕時將以原生解析度等比縮放呈現）。";
         }
         UIStyle.ApplyButtonStyle(selector);
         selector.AddThemeFontSizeOverride("font_size", 20);

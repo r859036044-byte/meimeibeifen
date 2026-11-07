@@ -17,6 +17,49 @@ public partial class TrainingRoomRuntime
     [Export] public Vector2  PatGirlBubbleOffset   = new Vector2(40f, 10f);    // 對方氣泡尾巴尖端相對頭頂的位置（螢幕 px，越小越靠近頭）
     [Export] public float    PatPlayerBubbleBottom = 12f;    // 主角（第一人稱）氣泡：水平置中、貼畫面最底部，尾巴尖端離底部的距離（螢幕 px）
 
+    // 位置：莉奈的氣泡（對話＋表情）在頭的左右兩側，不擋臉；男主的氣泡在雞雞正下方
+    [Export(PropertyHint.Enum, "自動(空間大的一邊):0,左邊:1,右邊:2")] public int GirlBubbleSideMode = 0;
+    [Export] public float GirlBubbleGapPx   = 14f;   // 氣泡尾巴尖端離前髮邊緣的距離（螢幕 px）
+    [Export] public float GirlBubbleYOffset = 0f;    // 氣泡下緣（尾巴尖端）相對臉中心的偏移（螢幕 px，負＝往上、正＝往下）
+    [Export] public float PlayerBubbleBottomPx = 10f;   // 男主氣泡：貼著畫面（房間）最下方，離底邊多遠（螢幕 px）
+    [Export(PropertyHint.Range, "0.5,4,0.1")] public float BubbleScaleFar  = 1.0f;   // 鏡頭拉最遠時對話框的大小倍率
+    [Export(PropertyHint.Range, "0.5,4,0.1")] public float BubbleScaleNear = 2.6f;   // 鏡頭拉最近（CamZoomMax）時的倍率
+    [Export(PropertyHint.Range, "1,4,0.1")]   public float BubbleZoomCurve = 1.8f;   // 縮放曲線：越大，鏡頭拉遠時對話框縮得越多、而且縮得越早（1＝線性；>1 是先小後大的曲線）
+    /// <summary>現在的對話框倍率：跟著鏡頭縮放（拉遠變小、拉近變大），中間走一條曲線。
+    /// 背景拉遠被縮小時，對話框在視覺上會顯得特別大（視覺錯覺），所以拉遠時要縮得比線性更多。</summary>
+    [Export(PropertyHint.Range, "0.5,4,0.1")] public float BubbleScalePlayer = 1.7f;   // 男主對話框：固定大小，不跟鏡頭縮放（2.0 縮小 15%）
+    float BubbleK(bool isPlayer = false)
+    {
+        if (isPlayer) return BubbleScalePlayer;
+        float t = Mathf.Clamp((_camZoom - 1.1f) / Mathf.Max(0.01f, CamZoomMax - 1.1f), 0f, 1f);
+        return Mathf.Lerp(BubbleScaleFar, BubbleScaleNear, Mathf.Pow(t, BubbleZoomCurve));
+    }
+    const float BubbleTailLen = 16f;   // 未放大時的尾巴長度（螢幕 px），跟 BubbleShape.TailLen 一致
+    // 畫布座標（2000x3200）：前髮左右邊緣、臉中心高度；雞雞中線與下緣（臉.png 735~1197 / 前髮.png 698~1218；雞雞.png 850~1119、1590~2128）
+    const float HeadEdgeLeftX = 698f, HeadEdgeRightX = 1218f, HeadCenterY = 602f;
+    const float JijiCenterX = 985f, JijiBottomY = 2128f;
+    int _girlSide = 1;   // 目前女主氣泡在頭的哪一邊：+1 右、-1 左
+
+    Vector2 CanvasToScreen(Control layer, Vector2 canvasPt) => _canvas.Transform * (layer.GetGlobalTransform() * canvasPt);
+
+    /// <summary>頭的左／右側（前髮邊緣、臉中心高度）的螢幕座標；找不到前髮時回傳 null。</summary>
+    Vector2? HeadSideScreen(int side)
+    {
+        if (_canvas == null || !Layers.TryGetValue("前髮", out var hair) || hair == null || !IsInstanceValid(hair)) return null;
+        return CanvasToScreen(hair, new Vector2(side > 0 ? HeadEdgeRightX : HeadEdgeLeftX, HeadCenterY));
+    }
+
+    /// <summary>決定這次氣泡放左還是右（出現的當下決定，不會中途跳邊）。</summary>
+    int PickGirlSide()
+    {
+        if (GirlBubbleSideMode == 1) return -1;
+        if (GirlBubbleSideMode == 2) return 1;
+        var l = HeadSideScreen(-1); var r = HeadSideScreen(1);
+        if (l == null || r == null) return _girlSide;
+        float vpX = GetViewport().GetVisibleRect().Size.X;
+        return (vpX - r.Value.X) >= l.Value.X ? 1 : -1;   // 哪邊空間大放哪邊
+    }
+
     Control _bubblePlayer, _bubbleGirl;
     Label   _bubblePlayerLbl, _bubbleGirlLbl;
     float   _patTalkT = -1f;
@@ -56,6 +99,8 @@ public partial class TrainingRoomRuntime
     /// <summary>氣泡每幀的排版／自動收起（摸頭台詞和點擊反應共用）。</summary>
     void LayoutBubbles(float dt)
     {
+        RescaleBubble(_bubblePlayer, _bubblePlayerLbl, true);
+        RescaleBubble(_bubbleGirl, _bubbleGirlLbl, false);
         PlaceTail(_bubblePlayer, true);
         PlaceTail(_bubbleGirl, false);
 
@@ -63,34 +108,72 @@ public partial class TrainingRoomRuntime
         AutoHide(_bubblePlayer, dt);
         AutoHide(_bubbleGirl, dt);
 
-        // 對方氣泡跟著頭走
-        if (_bubbleGirl != null && IsInstanceValid(_bubbleGirl) && Layers.TryGetValue("前髮", out var hair) && hair != null)
+        Vector2 vpG = GetViewport().GetVisibleRect().Size;
+
+        // 女主氣泡：在頭的左右側，垂直中心對臉中心，尾巴朝向臉
+        if (_bubbleGirl != null && IsInstanceValid(_bubbleGirl) && HeadSideScreen(_girlSide) is Vector2 edge)
         {
-            Vector2 world  = hair.GetGlobalTransform() * HeadPatHairAnchor;
-            Vector2 screen = _canvas.Transform * world;
-            // 尾巴尖端（氣泡左下 x=40-16、y=底+22）對準頭頂＋偏移
-            Vector2 pos = screen + PatGirlBubbleOffset - new Vector2(40f - 17f, _bubbleGirl.Size.Y + 24f);
-            // 鏡頭放大時頭頂可能在畫面外：氣泡夾在畫面內（留 8px 邊），尾巴超出時藏起來
-            Vector2 vpG = GetViewport().GetVisibleRect().Size;
+            Vector2 sz = _bubbleGirl.Size;
+            float x = edge.X + _girlSide * (GirlBubbleGapPx + BubbleTailLen * BubbleK()) - (_girlSide < 0 ? sz.X : 0f);
+            Vector2 pos = new Vector2(x, edge.Y + GirlBubbleYOffset - sz.Y);   // 尾巴貼在氣泡下緣 → 氣泡底邊（尖端）對臉中心高度，氣泡在臉的側上方
+            // 鏡頭放大等原因超出畫面：夾在畫面內（留 8px 邊），被夾動了就把尾巴藏起來（尾巴指不到臉了）
             Vector2 clamped = new Vector2(
-                Mathf.Clamp(pos.X, 8f, Mathf.Max(8f, vpG.X - _bubbleGirl.Size.X - 8f)),
-                Mathf.Clamp(pos.Y, 8f, Mathf.Max(8f, vpG.Y - _bubbleGirl.Size.Y - 30f)));
+                Mathf.Clamp(pos.X, 8f, Mathf.Max(8f, vpG.X - sz.X - 8f)),
+                Mathf.Clamp(pos.Y, 8f, Mathf.Max(8f, vpG.Y - sz.Y - 8f)));
             _bubbleGirl.Position = clamped;
-            var tailG = _bubbleGirl.GetNodeOrNull<Node2D>("Tail");
-            if (tailG != null) tailG.Visible = clamped.IsEqualApprox(pos);
+            var shapeG = _bubbleGirl.GetNodeOrNull<BubbleShape>("Shape");
+            if (shapeG != null) shapeG.TailVisible = clamped.IsEqualApprox(pos);
         }
+
+        // 男主氣泡：X 對雞雞中線、Y 固定在畫面最下方，尾巴在氣泡下方朝下
         if (_bubblePlayer != null && IsInstanceValid(_bubblePlayer))
         {
-            Vector2 vp = GetViewport().GetVisibleRect().Size;
-            _bubblePlayer.Position = new Vector2((vp.X - _bubblePlayer.Size.X) * 0.5f, vp.Y - PatPlayerBubbleBottom - 22f - _bubblePlayer.Size.Y);
+            Vector2 sz = _bubblePlayer.Size;
+            Vector2 pos;
+            float bottomY = vpG.Y - sz.Y - BubbleTailLen * BubbleK(true) - PlayerBubbleBottomPx;   // 畫面最下方（尾巴在氣泡下面，要留出尾巴的高度）
+            if (_canvas != null && Layers.TryGetValue("雞雞", out var jj) && jj != null && IsInstanceValid(jj))
+            {
+                Vector2 tip = CanvasToScreen(jj, new Vector2(JijiCenterX, JijiBottomY));   // 只有 X 跟著雞雞（雞雞的 Y 不管），Y 固定在畫面最下方
+                pos = new Vector2(tip.X - sz.X * 0.5f, bottomY);
+            }
+            else
+                pos = new Vector2((vpG.X - sz.X) * 0.5f, bottomY);   // 找不到雞雞：畫面最下方置中
+            Vector2 clamped = new Vector2(
+                Mathf.Clamp(pos.X, 8f, Mathf.Max(8f, vpG.X - sz.X - 8f)),
+                Mathf.Clamp(pos.Y, 8f, Mathf.Max(8f, vpG.Y - sz.Y - 8f)));
+            _bubblePlayer.Position = clamped;
+            var shapeP = _bubblePlayer.GetNodeOrNull<BubbleShape>("Shape");
+            if (shapeP != null) shapeP.TailVisible = clamped.IsEqualApprox(pos);
         }
     }
 
-    static void PlaceTail(Control b, bool isPlayer)
+    /// <summary>鏡頭縮放時對話框跟著放大縮小：字、邊距、外形一起重算（倍率變化 3% 以上才更新）。</summary>
+    void RescaleBubble(Control b, Label lbl, bool isPlayer)
+    {
+        if (b == null || lbl == null || !IsInstanceValid(b) || !IsInstanceValid(lbl)) return;
+        float K = BubbleK(isPlayer);
+        if (b.HasMeta("bk") && Mathf.Abs(K - (float)b.GetMeta("bk")) < 0.03f) return;
+        b.SetMeta("bk", K);
+        lbl.AddThemeFontSizeOverride("font_size", Mathf.RoundToInt((isPlayer ? 24f : 22f) * K));
+        if (b.GetThemeStylebox("panel") is StyleBoxEmpty pad)
+        {
+            pad.ContentMarginLeft = pad.ContentMarginRight = (isPlayer ? 22f : 23f) * K;
+            pad.ContentMarginTop = pad.ContentMarginBottom = (isPlayer ? 12f : 13f) * K;
+        }
+        var shape = b.GetNodeOrNull<BubbleShape>("Shape");
+        if (shape != null) shape.K = K;
+        b.ResetSize();
+    }
+
+    /// <summary>尾巴在哪一邊：女主＝靠臉那一側的邊（氣泡在右邊→左緣、在左邊→右緣）；男主＝下緣，朝下。</summary>
+    void PlaceTail(Control b, bool isPlayer)
     {
         if (b == null || !GodotObject.IsInstanceValid(b)) return;
-        var t = b.GetNodeOrNull<Node2D>("Tail");
-        if (t != null) t.Position = new Vector2(isPlayer ? b.Size.X * 0.5f : 40f, b.Size.Y);
+        var shape = b.GetNodeOrNull<BubbleShape>("Shape");
+        if (shape == null) return;
+        shape.TailSide = isPlayer ? BubbleShape.Side.Bottom : (_girlSide > 0 ? BubbleShape.Side.Left : BubbleShape.Side.Right);
+        if (!isPlayer && _canvas != null && Layers.TryGetValue("前髮", out var hair) && hair != null && IsInstanceValid(hair))
+            shape.TailTarget = CanvasToScreen(hair, new Vector2((HeadEdgeLeftX + HeadEdgeRightX) * 0.5f, HeadCenterY));   // 尾巴指向莉奈的臉中心
     }
 
     string Pick(string[] lines)
@@ -102,6 +185,7 @@ public partial class TrainingRoomRuntime
     void ShowBubble(ref Control bubble, ref Label lbl, string text, bool isPlayer)
     {
         if (string.IsNullOrEmpty(text)) return;
+        if (!isPlayer) _girlSide = PickGirlSide();   // 女主氣泡每次出現時決定放頭的左邊還是右邊
         if (bubble == null || !IsInstanceValid(bubble)) (bubble, lbl) = BuildBubble(isPlayer);
         lbl.Text = text;
         bubble.ResetSize();
@@ -130,54 +214,32 @@ public partial class TrainingRoomRuntime
         tw.TweenCallback(Callable.From(() => { if (IsInstanceValid(b)) b.Visible = false; }));
     }
 
-    /// <summary>圓角白底＋深色描邊的對話氣泡，下方一個小尾巴（主角尾巴在下方中間，對方尾巴在左下指向頭）。</summary>
+    /// <summary>對話氣泡：圓角矩形＋∠ 形尾巴合成同一個外形（BubbleShape.cs），尾巴和氣泡銜接處沒有縫。
+    /// 整體放大 BubbleScale 倍（字、框、圓角、尾巴一起）。</summary>
     (Control, Label) BuildBubble(bool isPlayer)
     {
+        float K = BubbleK(isPlayer);
         var box = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore, Visible = false };
-        var sb = new StyleBoxFlat
-        {
-            BgColor = isPlayer ? new Color(1f, 1f, 1f, 0.90f) : new Color(1f, 0.97f, 0.99f, 0.90f),   // 90% 不透明
-            BorderColor = BarOutline,
-        };
-        sb.SetBorderWidthAll(3); sb.SetCornerRadiusAll(22);
-        sb.ContentMarginLeft = sb.ContentMarginRight = 22; sb.ContentMarginTop = sb.ContentMarginBottom = 12;
-        if (!isPlayer) { sb.ContentMarginLeft = sb.ContentMarginRight = sb.ContentMarginTop = sb.ContentMarginBottom = 0; }   // 粉框緊貼外框，中間不留白
-        box.AddThemeStyleboxOverride("panel", sb);
-
-        // 女主：內側一圈粉紅色細框（跟設定／對話框同一種粉色 e8b5ce）
-        Container textParent = box;
-        if (!isPlayer)
-        {
-            var inner = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
-            var isb = new StyleBoxFlat { BgColor = new Color(1f, 1f, 1f, 0f), BorderColor = new Color("e8b5ce") };
-            isb.SetBorderWidthAll(3); isb.SetCornerRadiusAll(19);
-            isb.ContentMarginLeft = isb.ContentMarginRight = 17; isb.ContentMarginTop = isb.ContentMarginBottom = 7;
-            inner.AddThemeStyleboxOverride("panel", isb);
-            box.AddChild(inner);
-            textParent = inner;
-        }
+        // 外形由 BubbleShape 畫；容器本身只負責字的邊距（框的粗細已包含在邊距裡）
+        var pad = new StyleBoxEmpty();
+        float mx = (isPlayer ? 22f : 23f) * K, my = (isPlayer ? 12f : 13f) * K;
+        pad.ContentMarginLeft = pad.ContentMarginRight = mx;
+        pad.ContentMarginTop = pad.ContentMarginBottom = my;
+        box.AddThemeStyleboxOverride("panel", pad);
 
         var lbl = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
-        lbl.AddThemeFontSizeOverride("font_size", isPlayer ? 24 : 22);
+        lbl.AddThemeFontSizeOverride("font_size", Mathf.RoundToInt((isPlayer ? 24f : 22f) * K));
         lbl.AddThemeColorOverride("font_color", UiText);
-        textParent.AddChild(lbl);
+        box.AddChild(lbl);
 
-        // 尾巴：描邊三角＋內層白三角（Node2D，不受容器排版影響；位置每幀依氣泡大小更新）
-        var tail = new Node2D { Name = "Tail" };
-        box.AddChild(tail);
-        if (isPlayer)
+        box.AddChild(new BubbleShape
         {
-            tail.AddChild(new Polygon2D { Color = BarOutline, Polygon = new[] { new Vector2(-14, -3), new Vector2(14, -3), new Vector2(0, 22) } });
-            tail.AddChild(new Polygon2D { Color = sb.BgColor, Polygon = new[] { new Vector2(-10, -5), new Vector2(10, -5), new Vector2(0, 16) } });
-        }
-        else
-        {
-            // 女主：深色外框 → 粉紅內框 → 底色，三層三角形，粉框一路包到尾巴尖端
-            tail.AddChild(new Polygon2D { Color = BarOutline,           Polygon = new[] { new Vector2(-15, -3), new Vector2(15, -3), new Vector2(-17, 24) } });
-            tail.AddChild(new Polygon2D { Color = new Color("e8b5ce"), Polygon = new[] { new Vector2(-12, -6), new Vector2(12, -6), new Vector2(-14.5f, 19) } });
-            tail.AddChild(new Polygon2D { Color = sb.BgColor,           Polygon = new[] { new Vector2(-8, -8), new Vector2(8, -8), new Vector2(-11, 13) } });
-        }
+            Name = "Shape", K = K, DoubleBorder = !isPlayer,   // 女主：深色框＋粉紅內框；男主：只有深色框
+            OutlineColor = BarOutline, InnerBorderColor = new Color("e8b5ce"),
+            FillColor = isPlayer ? new Color(1f, 1f, 1f) : new Color(1f, 0.97f, 0.99f),
+        });
 
+        box.SetMeta("bk", K);
         UiRoot.AddChild(box);
         return (box, lbl);
     }

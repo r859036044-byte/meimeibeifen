@@ -35,7 +35,7 @@ public partial class TrainingRoomRuntime : Node
     {
         "腿/腿1","腿/腿2","腿/腳1","腿/腳2","腿/足1","腿/足2",
         "m腿/腿底","m腿/腿1","m腿/腿2","m腿/腳1","m腿/腳2","m腿/足1","m腿/足2",
-        "男人腿1","男人腿2","腿/汗1","m腿/小穴","m腿/小穴細節","m腿/肛門","腿/小穴",
+        "男人腿1","男人腿2","腿/汗1","m腿/小穴","m腿/小穴細節","m腿/肛門","腿/小穴","m腿/內褲",
         "內褲",   // 內褲跟小穴同步（只微量呼吸），不然內褲會比小穴多晃
         "開1","洞","開上","插入",   // 插入疊層要跟小穴同步呼吸，不然會跟小穴錯開
     };
@@ -66,7 +66,7 @@ public partial class TrainingRoomRuntime : Node
         "臉的陰影", "臉",
         "眉毛1", "眉毛2",
         "表情/鼻子", "表情/嘴巴", "表情/腮紅",
-        "笑", "笑2", "小嘴", "吐舌", "張嘴1", "張嘴2", "斜動嘴", "抖動嘴", "小嘴吐舌",
+        "笑", "笑2", "小嘴", "吐舌", "張嘴1", "張嘴2", "斜動嘴", "抖動嘴", "小嘴吐舌", "小嘴巴",
     };
 
     // 使用者要求：M 腿出現時，身體以上的所有物件整體往上移約 3px（螢幕 px，跟著 M 腿淡入時間漸進）。
@@ -259,7 +259,8 @@ public partial class TrainingRoomRuntime : Node
 
             // 左右頭髮微調（HairUserNudge，X 向右為正，跟 Unity 慣例一致，不用像 Y 一樣翻轉）
             ctrl.Position = basePos + pivotComp + new Vector2(animX + HairUserNudge(s.LayerName).X + braidExpandX, breathY) + BodyShake + HeadLift;
-            ctrl.RotationDegrees = -animRot; // Unity Z 正=逆時針，Godot 正=順時針 → 取負
+            float braidStatic = s.LayerName == "後髮3" ? BraidStaticRotDeg : s.LayerName == "後髮2" ? -BraidStaticRotDeg : 0f;   // 右邊辮子順時針、左邊逆時針，和後面的頭髮接起來，不要縮進去
+            ctrl.RotationDegrees = -animRot + braidStatic; // Unity Z 正=逆時針，Godot 正=順時針 → 取負
             ctrl.Scale = new Vector2(scaleX, scaleY);
 
             // 頭髮尾端呼吸擴張：只在吸氣（sin>0）時往外推，跟身體膨脹（BreathBodyExpand）
@@ -608,6 +609,13 @@ public partial class TrainingRoomRuntime : Node
     //   目標點 = 某圖層實際畫出內容的中心 + Unity 原本的偏移量，再換算到螢幕座標。
     // 之前用 HotspotPos（熱點固定座標）+ 螢幕中心推算，熱點位置跟圖層實際位置有落差，
     // 加上每一發各自亂數，落點（尤其 Y）很分散。
+    [ExportGroup("射精節奏")]
+    [Export(PropertyHint.Range, "1,4,1")] public int EjacLeadCount = 2;      // 起手「流出一點」幾次（力道不強）
+    [Export(PropertyHint.Range, "2,6,1")] public int EjacTailCount = 3;      // 最後「回到近射、越來越弱」幾次
+    [Export] public Vector2 EjacGapSlow   = new Vector2(0.30f, 0.50f);       // 起手流出之間的間隔（秒）
+    [Export] public Vector2 EjacGapNormal = new Vector2(0.28f, 0.45f);       // 近射／中射之間的間隔（秒）
+    [Export] public Vector2 EjacGapStrong = new Vector2(0.45f, 0.70f);       // 遠射之間的間隔（秒，蓄力久一點）
+
     async System.Threading.Tasks.Task EjaculationSequenceAsync()
     {
         _ejacRunning = true;
@@ -617,91 +625,95 @@ public partial class TrainingRoomRuntime : Node
         {
             string pussy = ActivePussyLayer();
 
-            // ── Phase 1+2：近射 3 波，每波 2~3 發 ───────────────────────────
-            // 第一波瞄準小穴中心（第一發精準、其他 ±15/±10）；後兩波往上 dist×0.5~1、左右 ±SpreadX
+            // 射精分 4 段，像真的射：先流出一點（力道不強）→ ① 近射 → ② 中射 → ③ 遠射 → ④ 回到近射（越來越弱、慢慢流乾）。
+            // 每一發的間隔、力道、距離都不一樣（以前每一發都接著射、力道一樣，太統一）。間隔／力道可在 Inspector 的「射精節奏」調整。
+
+            // ── 起手：流出一點（力道不強、距離很短、慢、有滴落）──────────────────
+            {
+                int lead = Mathf.Max(1, EjacWaves(EjacLeadCount));
+                for (int i = 0; i < lead; i++)
+                {
+                    Vector2 tipC = JijiTipCanvas();
+                    Vector2 tgt = i == 0 ? LayerCanvasCenter(pussy) + new Vector2(Rf(-12, 12), Rf(-8, 8))
+                                         : RandomUpTarget(tipC, EjacCloseMaxDist * 0.22f, EjacSpreadX * 0.3f);
+                    await ShootSemenAsync(tipC, tgt, Mathf.Max(3, EjacCloseSegCount - 3), 0.45f, 0.75f, addDrip: true);
+                    await Wait(Rf(EjacGapSlow.X, EjacGapSlow.Y));
+                }
+            }
+            if (_ejacStop) goto EjacEnd;
+
+            // ── ① 近射：2~3 次脈動，間隔不均、力道漸強（1 → 1.25）──────────────────
             for (int wave = 0, waveN = EjacWaves(3); wave < waveN; wave++)
             {
-                bool isFirst = wave == 0;
-                int simul = (int)GD.RandRange(2, 3);
-                float dist = isFirst ? EjacCloseMaxDist * 0.3f : EjacCloseMaxDist;
+                float k = waveN <= 1 ? 1f : wave / (float)(waveN - 1);
+                int simul = wave == 0 ? 1 : (int)GD.RandRange(1, 2);
                 Vector2 pussyC = LayerCanvasCenter(pussy);
                 for (int sh = 0; sh < simul; sh++)
                 {
                     Vector2 tipC = JijiTipCanvas();
-                    Vector2 tgtC = isFirst
-                        ? pussyC + (sh == 0 ? Vector2.Zero : new Vector2(Rf(-15, 15), Rf(-10, 10)))
-                        : RandomUpTarget(tipC, dist, EjacSpreadX);
-                    var task = ShootSemenAsync(tipC, tgtC, EjacCloseSegCount, 1f, 1f);
+                    Vector2 tgtC = wave == 0
+                        ? pussyC + new Vector2(Rf(-15, 15), Rf(-10, 10))
+                        : RandomUpTarget(tipC, EjacCloseMaxDist * Mathf.Lerp(0.6f, 1f, k), EjacSpreadX);
+                    var task = ShootSemenAsync(tipC, tgtC, EjacCloseSegCount, Mathf.Lerp(0.85f, 1.25f, k), 1f);
                     if (sh == simul - 1) await task;
                 }
-                await Wait(Rf(0.02f, 0.05f));
+                await Wait(Rf(EjacGapNormal.X, EjacGapNormal.Y) * Mathf.Lerp(1.2f, 0.85f, k));   // 越射越密一點
             }
-
-            await Wait(0.15f);
             if (_ejacStop) goto EjacEnd;
 
-            // ── Phase 2.5：中射 — 胸1/胸2/胸中間 隨機取 2 個，同時射 ───────────
+            // ── ② 中射：胸，2 次脈動，力道比近射強、間隔也不一樣 ────────────────────
             {
                 Vector2 c1 = LayerCanvasCenter("胸1"), c2 = LayerCanvasCenter("胸2");
                 var mids = new System.Collections.Generic.List<Vector2> { c1, c2, (c1 + c2) * 0.5f };
                 for (int i = mids.Count - 1; i > 0; i--) { int j = (int)GD.RandRange(0, i); (mids[i], mids[j]) = (mids[j], mids[i]); }
-                Vector2 tipC = JijiTipCanvas();
-                _ = ShootSemenAsync(tipC, mids[0] + new Vector2(Rf(-10, 10), Rf(-10, 10)), EjacMidSegCount, 1.5f, 1.1f);
-                await ShootSemenAsync(tipC, mids[1] + new Vector2(Rf(-10, 10), Rf(-10, 10)), EjacMidSegCount, 1.5f, 1.1f);
+                for (int m = 0; m < 2; m++)
+                {
+                    Vector2 tipC = JijiTipCanvas();
+                    await ShootSemenAsync(tipC, mids[m] + new Vector2(Rf(-10, 10), Rf(-10, 10)), EjacMidSegCount, m == 0 ? 1.35f : 1.55f, 1.1f);
+                    await Wait(Rf(EjacGapNormal.X, EjacGapNormal.Y) * (m == 0 ? 1f : 1.25f));
+                }
             }
-
-            await Wait(0.15f);
             if (_ejacStop || _ejacMul < 0.5f) goto EjacEnd;
 
-            // ── Phase 3：遠射 3 次 ────────────────────────────────────────────
-            // 第 1 次：往上隨機方向（距離 Lerp(Far Min~Max, 0.5~0.9) - 80）
+            // ── ③ 遠射：3 次最有力的脈動，間隔最長（要蓄力），力道 2.0 ───────────────
             {
                 Vector2 tipC = JijiTipCanvas();
                 float dist = Mathf.Lerp(EjacFarMinDist, EjacFarMaxDist, Rf(0.5f, 0.9f)) - 80f;
                 Vector2 t = PushOutOfNoShootZone(RandomUpTarget(tipC, dist, EjacSpreadX));
                 await ShootSemenAsync(tipC, t, EjacFarSegCount, 2f, EjacFarBlobScale);
-                await Wait(Rf(0.03f, 0.08f));
+                await Wait(Rf(EjacGapStrong.X, EjacGapStrong.Y));
             }
-            // 第 2 次：同時 2 發 → 前髮（往上）+ 臉下半（往下），共用同一個 X 偏移
             {
                 Vector2 tipC = JijiTipCanvas();
                 float baseX = Rf(60f, 100f);
-                // Unity Y 朝上：前髮 +80~120（往上）＝ Godot -80~120；臉 -100~140（往下）＝ Godot +100~140
                 Vector2 bang = PushOutOfNoShootZone(LayerCanvasCenter("前髮") + new Vector2(baseX + Rf(-15, 15), -Rf(80f, 120f)));
                 Vector2 face = PushOutOfNoShootZone(LayerCanvasCenter("臉")   + new Vector2(baseX + Rf(-15, 15),  Rf(100f, 140f)));
-                _ = ShootSemenAsync(tipC, bang, EjacFarSegCount, 2f, EjacFarBlobScale);
-                await ShootSemenAsync(tipC, face, EjacFarSegCount, 2f, EjacFarBlobScale);
-                await Wait(Rf(0.03f, 0.08f));
+                _ = ShootSemenAsync(tipC, bang, EjacFarSegCount, 2.1f, EjacFarBlobScale);
+                await ShootSemenAsync(tipC, face, EjacFarSegCount, 1.9f, EjacFarBlobScale);
+                await Wait(Rf(EjacGapStrong.X, EjacGapStrong.Y) * 1.1f);
             }
-            // 第 3 次：射在胸（胸1 或 胸2 中心）
             {
                 Vector2 tipC = JijiTipCanvas();
                 Vector2 chest = LayerCanvasCenter(GD.Randf() < 0.5f ? "胸1" : "胸2");
-                await ShootSemenAsync(tipC, chest, EjacFarSegCount, 2f, EjacFarBlobScale);
+                await ShootSemenAsync(tipC, chest, EjacFarSegCount, 1.8f, EjacFarBlobScale);
+                await Wait(Rf(EjacGapNormal.X, EjacGapNormal.Y));
             }
-
-            await Wait(0.15f);
             if (_ejacStop || _ejacMul < 0.75f) goto EjacEnd;
 
-            // ── Phase 3.5：斷射（近射 1 發）──────────────────────────────────
+            // ── ④ 回到近射：越來越弱、間隔越來越長，最後幾下只是流出來（帶滴落）──────
             {
-                Vector2 tipC = JijiTipCanvas();
-                await ShootSemenAsync(tipC, RandomUpTarget(tipC, EjacCloseMaxDist * 0.5f, EjacSpreadX), EjacCloseSegCount, 1f, 1f);
-            }
-            await Wait(0.2f);
-
-            // ── Phase 4：再近射 3 波，每波 1~2 發（速度 ×0.75、左右 ×0.8、帶滴落）──
-            for (int wave = 0, waveN = EjacWaves(3); wave < waveN; wave++)
-            {
-                int simul = (int)GD.RandRange(1, 2);
-                for (int sh = 0; sh < simul; sh++)
+                int tail = Mathf.Max(2, EjacWaves(EjacTailCount));
+                for (int wave = 0; wave < tail; wave++)
                 {
+                    float k = tail <= 1 ? 1f : wave / (float)(tail - 1);   // 0 → 1：越來越弱
                     Vector2 tipC = JijiTipCanvas();
-                    var task = ShootSemenAsync(tipC, RandomUpTarget(tipC, EjacCloseMaxDist, EjacSpreadX * 0.8f),
-                                               EjacCloseSegCount, 0.75f, 1f, addDrip: true);
-                    if (sh == simul - 1) await task;
+                    float dist = EjacCloseMaxDist * Mathf.Lerp(0.9f, 0.25f, k);
+                    await ShootSemenAsync(tipC, RandomUpTarget(tipC, dist, EjacSpreadX * Mathf.Lerp(0.8f, 0.3f, k)),
+                                          Mathf.Max(3, Mathf.RoundToInt(Mathf.Lerp(EjacCloseSegCount, EjacCloseSegCount - 4, k))),
+                                          Mathf.Lerp(0.95f, 0.45f, k), Mathf.Lerp(1f, 0.75f, k), addDrip: true);
+                    await Wait(Rf(EjacGapNormal.X, EjacGapNormal.Y) * Mathf.Lerp(1f, 2.2f, k));   // 越來越慢
+                    if (_ejacStop) break;
                 }
-                await Wait(Rf(0.02f, 0.05f));
             }
 
         EjacEnd:

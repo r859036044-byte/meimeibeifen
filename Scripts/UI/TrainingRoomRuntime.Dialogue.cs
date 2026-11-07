@@ -185,6 +185,7 @@ public partial class TrainingRoomRuntime : Node
     public void EndToday()
     {
         if (_endingDay || _timingChallengeActive) return;
+        if (!TissueAllowLeave()) return;   // 精液沒擦乾淨不能離開（Tissue.cs）
         var pdm = PlayerDataManager.Instance;
         if (pdm == null) return;
 

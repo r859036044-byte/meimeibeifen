@@ -39,13 +39,14 @@ public partial class TrainingRoomRuntime
     /// <summary>全年齡模式只開放摸頭／蓋被子／捏臉（可關掉方便在 R18 下測試全年齡）。</summary>
     [Export] public bool AllAgesRestrict = true;
     [Export(PropertyHint.Range, "0.05,1,0.01")] public float AllAgesHemStretchFrac = 0.3f;   // 全年齡：衣服最底下這個比例會往下拉長
-    [Export(PropertyHint.Range, "0,600,1")] public float AllAgesHemStretchPx = 160f;          // 全年齡：往下拉長多少 px
+    [Export(PropertyHint.Range, "0,600,1")] public float R18HemStretchPx = 0f;                 // R18：衣服最底下（同上比例）往下拉長多少 px（0＝不拉長，維持原樣）
+    [Export(PropertyHint.Range, "0,600,1")] public float AllAgesHemStretchPx = 300f;          // 全年齡：往下拉長多少 px
 
     static readonly string[] PinchLayerNames =
     {
         "臉的陰影","臉","表情/眼白","表情/眼白2","表情/眼球1","表情/眼球2","表情/眼皮","表情/眼皮2",
         "表情/睫毛1","表情/睫毛2","表情/下睫毛1","表情/下睫毛2","眼角1","眼角2","表情/鼻子","表情/嘴巴","表情/腮紅",
-        "笑","笑2","小嘴","吐舌","張嘴1","張嘴2","斜動嘴","抖動嘴","小嘴吐舌","眉毛1","眉毛2",
+        "笑","笑2","小嘴","吐舌","張嘴1","張嘴2","斜動嘴","抖動嘴","小嘴吐舌","小嘴巴","眉毛1","眉毛2",
     };
     const string PinchShaderCode = @"
 shader_type canvas_item;

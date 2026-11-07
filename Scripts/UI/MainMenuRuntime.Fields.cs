@@ -343,9 +343,15 @@ public partial class MainMenuRuntime : Control
         // DevModeManager 全域常駐處理，不用在每個場景各自建立監聽節點。
 
         // 從遊戲中「返回主畫面」→ 直接顯示開始畫面（不重播 LOGO 與開場動畫）
-        if (SkipIntroOnce)
+        if (SkipIntroOnce || DemoMode.Enabled)   // 試玩版：OP 直接跳到主畫面
         {
             SkipIntroOnce = false;
+            if (DemoMode.Enabled)
+            {   // 省略 LogoIntro 就沒有背景預載，這裡補上，之後進調教室的黑屏才不會太長
+                foreach (var relPath in TrainingRoomRuntime.GetPreloadSpritePaths())
+                    ResourceHelper.PreloadTexAny(relPath);
+                ResourceLoader.LoadThreadedRequest("res://Scenes/TrainingRoom.tscn");
+            }
             TitleDirect(_lifeCts.Token);
         }
         else
@@ -357,6 +363,7 @@ public partial class MainMenuRuntime : Control
 
     public override void _ExitTree()
     {
+        CleanupOpBgmBus();
         // 取消訂閱（Unity 的 OnDisable）
         SettingsManager.OnVolumeChanged -= ApplyVolumes;
 

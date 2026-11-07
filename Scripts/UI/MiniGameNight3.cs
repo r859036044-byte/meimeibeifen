@@ -172,7 +172,7 @@ public partial class MiniGameNight3 : CanvasLayer
     public static float UterusRampRows = 1f;                // 從開始到變形最大，雞雞要再往上走幾排的距離
     public static float JijiRotMul = 0.05f;                  // 旋轉擺動幅度倍率（1=原本，越小轉越少）
     public static float PushRiseTime = 0.7f, PushRiseExtra = 0.12f, PushJitter = 0.012f;   // 頂到底後慢慢再往上的時間／再往上多少（占雞雞行程比例）／抖動幅度
-    float _pushExtra, _pushJit, _thrustPx; int _thrustPhase;
+    float _pushExtra, _pushJit, _thrustPx, _preUp, _preUpS; int _thrustPhase;
     public static float ThrustLastPx = 10f;   // 最後一次（第 3 次）往下多少
     public static float ThrustPx = 5f;   // 「用力插」：前面幾次再往上多 5px，最後一次（頂到底）往下 5px
     public static float JijiUpExtraPx = 50f;               // 雞雞向上的最大位移再多加這麼多（畫布像素）
@@ -185,7 +185,7 @@ public partial class MiniGameNight3 : CanvasLayer
     public static bool CumTestButton = true;                // 顯示測試按鈕（在「用力插」下面）
     public static Vector2 CumTestOffsetPx = new(0f, 100f); // 測試按鈕相對第三顆氣泡的位置（畫面像素）
     public static float CumMarkerX = 40f;                   // 雞雞頂到最深時的標記位置（越小越深）
-    public static float CumPushTime = 0.6f;                 // 雞雞頂到最深的時間（秒）
+    public static float CumPushTime = 0.45f;                 // 雞雞頂到最深的時間（秒）
     public static int CumSpurts = 6;                        // 一共射幾團
     public static float CumRiseTime = 0.22f, CumSlideTime = 1.3f;   // 往上射（越小越用力）／沿內圈邊溜下來
     public static float CumSizeFirst = 1.4f, CumSizeSecond = 0.8f, CumSizeLast = 0.6f;   // 第一顆／第二顆／最後一顆的大小倍率
@@ -207,12 +207,12 @@ public partial class MiniGameNight3 : CanvasLayer
     float _slE, _slEImp, _lastPool; bool _slReset; ShaderMaterial _cumMat; Rect2 _cumA;
     public static float _unusedSl;   // 往上頂時液面中間凸起、往下退時中間凹進去的力道／最大高度（畫布像素）
     public static float CumSloshDef = 2.5f;   // 液面受子宮格子變形影響的程度（變形的速度推動晃動；格子左右高低差直接讓液面傾斜）
-    public static float CumHazeTop = 0.55f;                 // 白底漸層最上面的濃度（0=最上面沒有白；1=整片一樣濃）
+    public static float CumHazeTop = 0.15f;                 // 白底漸層最上面的濃度（0=最上面沒有白；1=整片一樣濃）
     public static float CumHazeAlpha = 0.3f;                // 被射完後子宮內圈下半部半透明白底的濃度（0=沒有）
     public static float CumJijiEdgePx = 16f;                 // 白色只蓋紅色與黑線的交界處，這是交界兩側各算多寬（畫布像素，越大蓋的範圍越寬）
     public static float CumJijiStrokeTime = 3.6f;           // 白色從頂點沿著左右兩邊的線刷到底花多久（秒）
     public static float CumJijiBlobTime = 1.0f;             // 起點那團不規則橢圓浮現、長大的時間（秒），之後才開始往下流
-    public static Vector2 CumJijiBlobCenterPx = new(697f, 187f);   // 那團的中心（雞雞圖畫布像素）
+    public static Vector2 CumJijiBlobCenterPx = new(689f, 187f);   // 那團的中心（雞雞圖畫布像素）
     public static float CumJijiBlobRotDeg = 35f;            // 起點那團橢圓的旋轉角度（度，正＝逆時針歪，跟九宮格同方向；負＝順時針）
     public static Vector2 CumJijiBlobSizePx = new(62f, 26f);       // 那團的半徑 x／y
     public static float CumJijiBrushSoft = 0.1f;            // 筆刷前緣的柔和程度（越大尾巴越長越淡）
@@ -490,9 +490,11 @@ void fragment() {
         // 一團大的柔和橢圓：帶著流一起往下走，越往下越淡
         float ey = gr * 400.0;
         vec2 ed = vec2(dq.x / 95.0, (dq.y - ey) / 60.0);
-        float el_ = smoothstep(1.0, 0.0, length(ed)) * 0.5 * (1.0 - clamp(ey / 520.0, 0.0, 1.0)) * step(0.01, gr);
+        float el_ = smoothstep(1.0, 0.0, length(ed)) * 0.35 * (1.0 - clamp(ey / 520.0, 0.0, 1.0)) * step(0.01, gr);
         dr = max(dr, el_);
         blobA = max(bl, dr) * jb_amt * jf_str;
+        float lum_ = dot(COLOR.rgb, vec3(0.299, 0.587, 0.114));   // 黑色的線不要被白霧蓋住：很暗的地方只留一點點白
+        blobA *= mix(1.0, mix(0.15, 1.0, smoothstep(0.12, 0.42, lum_)), step(0.5, COLOR.a));
     }
     float dropA = 0.0;
     {   // 雞雞前端旁邊那一小灘會晃的水：直接畫在雞雞這一層（跟原點、流水同一個畫法），所以一定跟著雞雞走、不會被別的圖層切到
@@ -507,7 +509,8 @@ void fragment() {
         dropA = body * fillm * depth * dp_a * dp_in;
     }
     COLOR.a *= mix(1.0, a, m_on) * fclip();
-    dropA *= 1.0 - COLOR.a * dp_under;   // 水灘在雞雞後面：雞雞身體有畫到的地方蓋住它，只有雞雞外面（雞雞和底之間）看得到
+    dropA *= 1.0 - COLOR.a * dp_under;
+    dropA *= mix(1.0, mix(0.23, 1.0, smoothstep(0.12, 0.42, dot(COLOR.rgb, vec3(0.299, 0.587, 0.114)))), step(0.5, COLOR.a));   // 黑線不被水灘蓋住（只留 23%）   // 水灘在雞雞後面：雞雞身體有畫到的地方蓋住它，只有雞雞外面（雞雞和底之間）看得到
     blobA = max(blobA, dropA);
     COLOR = vec4(mix(COLOR.rgb, vec3(0.97, 0.95, 0.92), blobA), max(COLOR.a, blobA));
     COLOR.rgb = mix(COLOR.rgb, vec3(1.0, 1.0, 1.0), clamp(dropA * 1.2, 0.0, 1.0) * (1.0 - dp_dbg));   // 水灘的部分再白一點
@@ -535,6 +538,8 @@ void fragment() {
     float fillm = smoothstep(tw - 0.05, tw + 0.05, q.y);
     float depth = mix(0.7, 1.0, smoothstep(tw, tw + 0.5, q.y));
     COLOR = vec4(mix(vec3(0.96, 0.94, 0.89), vec3(0.2, 0.45, 1.0), d_dbg), mix(body * fillm * depth * d_a * d_in, 0.35 * step(abs(p.x - d_c.x), 400.0) * step(abs(p.y - d_c.y), 300.0), d_dbg * 0.0) + d_dbg * 0.0);   // 不再套外框裁切，才不會被切掉一塊
+    vec4 ut_ = texture(TEXTURE, UV);   // 子宮自己的圖：黑線不被水滴蓋住，很暗的地方只留 23%
+    COLOR.a *= mix(1.0, mix(0.23, 1.0, smoothstep(0.12, 0.42, dot(ut_.rgb, vec3(0.299, 0.587, 0.114)))), step(0.5, ut_.a));
 }";
     const string CumShader = @"
 shader_type canvas_item;" + FClipDecl + @"
@@ -620,7 +625,9 @@ void fragment() {
         a = mm + a * (1.0 - mm);
     }
     float inside = mix(1.0, smoothstep(0.35, 0.65, texture(ut_tex, UV).a), ut_on);   // 只顯示在子宮內圈裡（圓滑邊緣）
-    COLOR = vec4(c, amt * a * inside * fclip());
+    vec4 ut_ = texture(TEXTURE, UV);   // 子宮自己的圖：黑線不被精液蓋住，很暗的地方只留 23%
+    float lk_ = mix(1.0, mix(0.23, 1.0, smoothstep(0.12, 0.42, dot(ut_.rgb, vec3(0.299, 0.587, 0.114)))), step(0.5, ut_.a));
+    COLOR = vec4(c, amt * a * inside * fclip() * lk_);
 }";
 
     Vector2 _tipScr;   // 雞雞前端在 _stage 內的位置（SyncJiji 每幀更新）
@@ -672,8 +679,51 @@ void fragment() {
 
     /// 第 10 回合結尾：細長、歪歪的白色液柱用力射出，頂到內圈上緣後像溜滑梯一樣沿著內圈邊往下滑，
     /// 滑到底融進液面，最後積在子宮底部不消失。液體畫在跟子宮同一個變形網格上，會跟著子宮一起動。
-    async Task PlayCum()
+    public static int CumPreLight = 2;                       // 射精前先有幾次比較小力的衝撞
+    public static float CumPreBaseX = 800f;                  // 衝撞之間退回的位置（標記位置，越小越深）
+    public static float CumPreDepthX = 230f;                 // 小力衝撞頂到的位置
+    public static float CumPreDefMul = 0.5f;                 // 射精前三次衝撞時子宮變形量的倍率（1＝跟平常一樣，越小變形越少）
+    public static float CumPreUp12Px = 90f;                 // 前兩次小力衝撞，頂進去時雞雞往上多的量
+    public static float CumPreRotGain = 2f;                  // 射精前往上多頂的量換算成旋轉的倍率（越大轉得越多，1＝跟位置一樣）
+    public static float CumTinyHold = 0.5f;                  // 第三次先射一點點之後停留的時間（秒）
+    public static float CumPreUpPx = 80f;                    // 射精前三次衝撞，每次頂進去時雞雞再往上多的量（畫布像素）
+    public static float CumPre3DepthX = 160f;                 // 第三次（先射一點點）頂到的位置，比較深一點
+    public static float CumPreInTime = 0.35f, CumPreOutTime = 0.4f, CumPreRetreatTime = 0.55f;   // 頂進去／退出來／射完一點點之後後退的時間（秒）
+    public static int CumTinyCount = 3;                      // 第三次先射幾顆
+    public static float CumTinyMul = 0.4f;                  // 第三次那一點點的大小倍率
+    public static float CumTinyReach = 0.6f;                // 第三次那一點點射多遠（1＝跟正式的一樣遠，越小越近）
+
+    async Task MoveMarker(float to, float time)
     {
+        float a = _markerX;
+        for (float s = 0; s < 1f && Alive; s += Dt / Mathf.Max(time, 0.01f)) { _markerX = Mathf.Lerp(a, to, Mathf.SmoothStep(0f, 1f, s)); await Frame(); }
+        _markerX = to;
+    }
+
+    /// 正式射精前：先 2 次小力衝撞，第三次頂深一點並先射一點點，接著後退，然後才是原本那一下（頂到最深＋射出）
+    async Task PreThrusts()
+    {
+        _osc = false; _preUp = 0f;
+        await MoveMarker(CumPreBaseX, CumPreOutTime);
+        for (int k = 0; k < CumPreLight && Alive; k++)
+        {
+            _preUp = CumPreUp12Px; await MoveMarker(CumPreDepthX, CumPreInTime);
+            if (!Alive) { _preUp = 0f; return; }
+            _preUp = 0f; await MoveMarker(CumPreBaseX, CumPreOutTime);
+        }
+        if (!Alive) return;
+        _preUp = CumPreUpPx; await MoveMarker(CumPre3DepthX, CumPreInTime);
+        if (!Alive) { _preUp = 0f; return; }
+        await PlayCum(true);
+        _preUp = 0f;
+        if (!Alive) return;
+        await MoveMarker(CumPreBaseX, CumPreRetreatTime);
+    }
+
+    async Task PlayCum(bool tiny = false)
+    {
+        if (!tiny) await PreThrusts();
+        if (!Alive) return;
         _uterusTex ??= ResourceLoader.Load<Texture2D>("res://Resources/MG/mg_uterus_inner.png");   // 子宮內圈的範圍
         if (_cumRect != null && IsInstanceValid(_cumRect)) _cumRect.QueueFree();
         var poly = new Polygon2D { Name = "cum", Texture = _uterusPoly.Texture, Polygons = _uterusPoly.Polygons, UV = _uterusPoly.UV };
@@ -684,7 +734,7 @@ void fragment() {
         SetFClip(mat);
         if (_dropPoly != null && IsInstanceValid(_dropPoly)) _dropPoly.QueueFree();
         _dropPoly = null; _dropIn = 0f;
-        if (CumDrop2On)
+        if (CumDrop2On && !tiny)
         {   // 子宮底部（九宮格由下數第二排正中間，雞雞上面凹進去的地方）一小灘會晃的水；圖層在雞雞下面
             _dropMat = new ShaderMaterial { Shader = new Shader { Code = DropShader } };
             _dropPoly = new Polygon2D { Name = "cumdrop", Texture = _uterusPoly.Texture, Polygons = _uterusPoly.Polygons, UV = _uterusPoly.UV, Material = _dropMat };
@@ -693,8 +743,8 @@ void fragment() {
         }
         _osc = false;
         float m0 = _markerX;
-        for (float t = 0; t < 1f && Alive; t += Dt / CumPushTime) { _markerX = Mathf.Lerp(m0, CumMarkerX, t * t * (3f - 2f * t)); await Frame(); }
-        int n = Mathf.Clamp(CumSpurts, 1, 8);
+        for (float t = 0; t < 1f && Alive && !tiny; t += Dt / CumPushTime) { _markerX = Mathf.Lerp(m0, CumMarkerX, t * t * (3f - 2f * t)); await Frame(); }
+        int n = tiny ? Mathf.Clamp(CumTinyCount, 1, 8) : Mathf.Clamp(CumSpurts, 1, 8);
         var side = new float[n]; var jit = new float[n]; var sz = new float[n];
         for (int i = 0; i < n; i++)
         {
@@ -702,12 +752,14 @@ void fragment() {
             jit[i] = ((float)_rng.NextDouble() - 0.5f) * 2f;
             sz[i] = (i == 0 ? CumSizeFirst : Mathf.Lerp(CumSizeSecond, CumSizeLast, n > 2 ? (i - 1) / (float)(n - 2) : 0f)) * (0.92f + (float)_rng.NextDouble() * 0.16f);   // 第一顆最大，第二顆起明顯小一點
         }
+        if (tiny) for (int i = 0; i < n; i++) sz[i] *= CumTinyMul;
         float one = CumRiseTime + CumSlideTime;
         var t0 = new float[n];
         for (int i = 0; i < n; i++) t0[i] = (i / Mathf.Max(CumWaveSize, 1)) * CumWaveGap + (i % Mathf.Max(CumWaveSize, 1)) * CumInWaveGap;
         float dur = t0[n - 1] + one + 0.3f;
         float firstLand0 = CumRiseTime * (1f + (CumTroomStyle ? CumTailDelay : 0f));
         dur = Mathf.Max(dur, Mathf.Max(firstLand0 + CumJijiBlobTime * 0.8f + CumJijiStrokeTime, firstLand0 + CumWhiteFlowTime) + 0.2f);   // 等白色流完才結束
+        if (tiny) dur = t0[n - 1] + CumRiseTime + CumTinyHold;   // 只射一點點：很快就結束
         var tl = new Vector4[8]; var hd = new Vector4[8];
         var A = CumAreaPx; var C = A.GetCenter();
         _cumWf = 0f; _cumJf = 0f; _cumJb = 0f;
@@ -756,6 +808,7 @@ void fragment() {
                 // 歪歪的細長液柱：沿著九宮格那個傾斜方向往上射（左上），落點在內圈上緣
                 float xHit = startC.X + (yPeak - startC.Y) * Mathf.Tan(tilt) + jit[i] * CumShootSpreadPx;
                 var P = i < Mathf.Max(CumWaveSize, 1) ? new Vector2(firstP.X + jit[i] * CumFirstSpreadPx, firstP.Y) : new Vector2(Mathf.Clamp(xHit, C.X - rx * 0.75f, C.X + rx * 0.75f), yPeak);
+                if (tiny) P = startC.Lerp(P, CumTinyReach);
                 float rc = CumBlobPx * sz[i];
                 Vector2 head, tail, mid; float rad;
                 if (trU < riseEnd || ts <= 0f)
@@ -800,7 +853,7 @@ void fragment() {
             for (int i = n; i < 8; i++) { tl[i] = Vector4.Zero; hd[i] = Vector4.Zero; }
             float firstLand = CumRiseTime * (1f + (CumTroomStyle ? CumTailDelay : 0f));   // 第一波落地的時間
             float mk = Mathf.Clamp((el - t0[Mathf.Max(CumWaveSize, 1) - 1 < n ? Mathf.Max(CumWaveSize, 1) - 1 : 0] - firstLand) / 0.8f, 0f, 1f);
-            for (int k = 0; k < 6; k++) mat.SetShaderParameter("ms" + k, new Vector4(mist[k].X, mist[k].Y, mist[k].Z, mist[k].W * mk));
+            for (int k = 0; k < 6; k++) mat.SetShaderParameter("ms" + k, new Vector4(mist[k].X, mist[k].Y, mist[k].Z, mist[k].W * mk * (tiny ? 0f : 1f)));
             mat.SetShaderParameter("haze", Mathf.Clamp((el - t0[0] - firstLand) / 2.5f, 0f, 1f));
             mat.SetShaderParameter("haze_a", CumHazeAlpha); mat.SetShaderParameter("haze_top", CumHazeTop);
             mat.SetShaderParameter("pool_a", CumPoolAlpha);
@@ -809,6 +862,7 @@ void fragment() {
             _dropIn = Mathf.Clamp((el - t0[0] - firstLand - 0.3f) / 1.2f, 0f, 1f);
             _cumJf = Mathf.Clamp((el - t0[0] - firstLand - CumJijiBlobTime * 0.8f) / CumJijiStrokeTime, 0f, 1f);
             _cumWf = Mathf.Clamp((el - t0[0] - firstLand) / CumWhiteFlowTime, 0f, 1f);
+            if (tiny) { _cumJb = _cumJf = _cumWf = 0f; _dropIn = 0f; mat.SetShaderParameter("haze", 0f); }   // 先射一點點：不出現雞雞上的白色流水、也沒有白底
             for (int i = 0; i < 8; i++) { mat.SetShaderParameter("tl" + i, tl[i]); mat.SetShaderParameter("hd" + i, hd[i]); }
             mat.SetShaderParameter("bead_k", CumBeadScale); mat.SetShaderParameter("bead_a", CumBeadAlpha); mat.SetShaderParameter("wob", CumTroomStyle ? 0f : CumWobble); mat.SetShaderParameter("tro", CumTroomStyle ? 1f : 0f); mat.SetShaderParameter("col", CumTroomStyle ? new Color(0.96f, 0.94f, 0.89f) : new Color(0.98f, 0.97f, 0.94f)); mat.SetShaderParameter("ol_w", CumOutlinePx); mat.SetShaderParameter("ctr_a", CumTroomStyle ? 1f : CumHeadCenterAlpha);
             {   // 液面晃動改在 _Process 每幀更新（射完之後也會繼續動）；這裡只送「液面變化」造成的波（落下去、水位上升）
@@ -818,12 +872,13 @@ void fragment() {
                 _cumMat = mat; _cumA = A;
             }
             mat.SetShaderParameter("pool_top", pool > 0.5f ? yBot - pool : 100000f);
-            mat.SetShaderParameter("amt", CumAlpha);
+            mat.SetShaderParameter("amt", CumAlpha * (tiny ? Mathf.Clamp((dur - el) / 0.35f, 0f, 1f) : 1f));
             mat.SetShaderParameter("ut_tex", _uterusTex);
             mat.SetShaderParameter("canvas_px", CanvasPx);
             mat.SetShaderParameter("ut_on", CumClipUterus ? 1f : 0f);
             await Frame();
         }
+        if (tiny) { if (IsInstanceValid(poly)) poly.QueueFree(); _cumRect = null; }   // 那一點點淡掉後就清掉，之後正式射精才重新開始
         // 液面留在子宮裡不消失（遊戲結束離開時才一起清掉）；再按測試按鈕會先清掉上一批
     }
 
@@ -1038,10 +1093,12 @@ void fragment() {
         if (_nxS < 0f) _nxS = nxRaw;
         _nxS = Mathf.Lerp(_nxS, nxRaw, 1f - Mathf.Exp(-DefSmooth * Dt));   // 平滑：位置/變形慢慢跟上，不會突然跳
         float nx = _nxS;
-        float sr = Mathf.Lerp(_cfg.JijiRot_Uterus, _cfg.JijiRot_G, nx);
         float jUp = (_cfg.JijiY_Uterus - _cfg.JijiY_G) * JijiMoveScale + JijiUpExtraPx;   // 雞雞前端最大上移量（畫布像素）
+        _preUpS = Mathf.Lerp(_preUpS, _preUp, 1f - Mathf.Exp(-14f * Dt));
+        float nxr = Mathf.Clamp(nx - _preUpS / Mathf.Max(jUp, 1f) * CumPreRotGain, 0f, 1f);   // 射精前的衝撞：往上多頂的量也算進旋轉，轉得跟最後那一下一樣
+        float sr = Mathf.Lerp(_cfg.JijiRot_Uterus, _cfg.JijiRot_G, nxr);
         float jit = _pushJit * PushJitter * (Mathf.Sin(Time.GetTicksMsec() * 0.045f) * 0.6f + Mathf.Sin(Time.GetTicksMsec() * 0.113f) * 0.4f);   // 頂到底時的輕微抖動
-        _thrustPx = Mathf.Lerp(_thrustPx, _thrustPhase == 1 ? ThrustPx : _thrustPhase == 2 ? -ThrustLastPx : 0f, 1f - Mathf.Exp(-14f * Dt));
+        _thrustPx = Mathf.Lerp(_thrustPx, (_thrustPhase == 1 ? ThrustPx : _thrustPhase == 2 ? -ThrustLastPx : 0f) + _preUp, 1f - Mathf.Exp(-14f * Dt));
         float dj = Mathf.Clamp(1f - nx + _pushExtra * PushRiseExtra + jit + _thrustPx / Mathf.Max(jUp, 1f), 0f, 1.3f);   // 雞雞與子宮用同一個值：待機、選完掃動都是標記位置驅動
         _tipUvY = 0f;
         _jiDisp = new Vector2(-JijiLeftCompPx, -jUp) * dj;   // 雞雞這一層現在整個移動了多少（原點要扣掉，才會停在子宮上不跟著雞雞跑）
@@ -1054,12 +1111,13 @@ void fragment() {
         float rowSp = ub.Size.Y * uk / 3f;
         float rowY0 = StageOffsetPx.Y + GroupBOffsetPx.Y + UterusFinePx.Y + ub.Position.Y + ub.Size.Y * (1f - uk) / 2f;
         float d = Mathf.Clamp((rowY0 + UterusStartRow * rowSp - tipY) / (rowSp * UterusRampRows), 0f, 1f);
+        d *= Mathf.Lerp(1f, CumPreDefMul, Mathf.Clamp(_preUpS / Mathf.Max(Mathf.Max(CumPreUp12Px, CumPreUpPx), 1f), 0f, 1f));   // 射精前的小力衝撞：子宮變形縮小
         _upFollow = dj * jUp * BottomFollow * UterusFollowMul;
         UpdateUterus(d, d);
         var gf = new Vector2(0f, -UterusDeformPx).Rotated(-Mathf.DegToRad(UterusGridRotDeg)) * (d * BottomGridFollow * S);   // 九宮格變形的位移方向
         _imgBottom.Position += gf; _imgBottom2.Position += gf;
         _expK = dj;   // 擴張強度：雞雞越往上越寬
-        _jRotDeg = JijiRotSign * sr * JijiRotMul + JijiStartRotDeg * nx;
+        _jRotDeg = JijiRotSign * sr * JijiRotMul + JijiStartRotDeg * nxr;
         UpdateJiji(dj, jUp, _jRotDeg);
         {   // 雞雞前端（畫布 782,79）在 _stage 內的位置：變形後再繞轉軸旋轉
             var jb = JijiBoxPx; var p0 = new Vector2(782f, 79f) - jb.Position + new Vector2(-JijiLeftCompPx, -jUp) * dj;

@@ -15,7 +15,10 @@ public partial class TrainingRoomRuntime : Node
     {
         BuildBackground();
         BuildCharacter();
-        DuvetState = AllAgesLocked ? 1 : 0;   // 全年齡：進房間時被子是踢開的（要在建被子之前設，淡入才會直接到位）
+        // 第一天（R18、全年齡都一樣）進房間時被子是踢開的（不蓋被子）；第二天起全年齡一樣踢開、R18 蓋著。
+        // （要在建被子之前設，淡入才會直接到位）
+        bool firstDay_ = (DaySystem.Instance?.CurrentDay ?? 1) <= 1;
+        DuvetState = (AllAgesLocked || firstDay_) ? 1 : 0;
         BuildDuvetLayer();
         BuildTopHUD();
         BuildStatsPanel();
@@ -400,6 +403,8 @@ uniform float center_u = 0.5;
 uniform float half_width_u = 0.105;
 uniform float top_k = 1.0;     // 上半部的撐開比例（1＝不變；內褲用）
 uniform float mid_v = -1.0;    // 上下半部的分界（V）；<0＝不分
+uniform vec2 sd_l = vec2(0.0);   // 小穴用：左邊緣跟著左腿動的位移（px）
+uniform vec2 sd_r = vec2(0.0);   // 小穴用：右邊緣跟著右腿動的位移（px）
 varying vec4 vc;
 void vertex() { vc = COLOR; }
 void fragment() {
@@ -407,7 +412,9 @@ void fragment() {
     float w = 1.0 - smoothstep(0.0, half_width_u, abs(d));
     float wv = mid_v < 0.0 ? 1.0 : mix(top_k, 1.0, smoothstep(mid_v - 0.04, mid_v + 0.04, UV.y));   // 上半部變形減弱
     float k = 1.0 - expand_amount * w * wv;
-    COLOR = texture(TEXTURE, vec2(center_u + d * k, UV.y)) * vc;   // 同上
+    float xp_ = UV.x / TEXTURE_PIXEL_SIZE.x;
+    vec2 sd_ = sd_l * (1.0 - smoothstep(885.0, 960.0, xp_)) + sd_r * smoothstep(1020.0, 1094.0, xp_);   // 小穴左右邊緣各自跟著旁邊的腿動（其他圖層位移為 0，不受影響）
+    COLOR = texture(TEXTURE, vec2(center_u + d * k, UV.y) - sd_ * TEXTURE_PIXEL_SIZE) * vc;   // 同上
 }
 "
                 };
@@ -433,7 +440,7 @@ void fragment() {
 
     static readonly string[] MouthLayerCandidates =
     {
-        "笑", "笑2", "小嘴", "吐舌", "張嘴1", "張嘴2", "斜動嘴", "抖動嘴", "小嘴吐舌", "表情/嘴巴",
+        "笑", "笑2", "小嘴", "吐舌", "張嘴1", "張嘴2", "斜動嘴", "抖動嘴", "小嘴吐舌", "小嘴巴", "表情/嘴巴",
     };
 
     /// <summary>DEV 用：把「目前正顯示中的嘴巴圖層」換成另一張嘴巴貼圖，方便在 F1 面板直接
@@ -751,7 +758,7 @@ void fragment() {
 
         _semenBar = new ProgressBar
         {
-            Name = "SemenBar", TooltipText = "勃起度（≥50 勃起，<30 軟掉）",
+            Name = "SemenBar", TooltipText = "勃起度（≥30 勃起，<30 軟掉）",
             FillMode = (int)ProgressBar.FillModeEnum.BottomToTop,
             MinValue = 0, MaxValue = 1, Value = 0, ShowPercentage = false,
         };
@@ -819,6 +826,12 @@ void fragment() {
         _btnDrag = MkIconBtn(bar, "BtnDrag", "衣服模式（只拖衣服／被子，忽略綠點）", Colors.White, new Vector2(Pad, Y(0)));
         _btnDrag.Icon = MkDressIcon(); _btnDrag.IconAlignment = HorizontalAlignment.Center;   // 白色連衣裙
         _btnDrag.Pressed += () => ToggleDragTool();
+        if (DemoMode.Enabled)
+        {   // 試玩版：衣服模式停用（衣服物件不可控制）
+            _btnDrag.Disabled = true;
+            _btnDrag.Modulate = new Color(1f, 1f, 1f, 0.35f);
+            _btnDrag.TooltipText = "試玩版未開放";
+        }
         RefreshDragButton();
 
         _btnMouse = MkIconBtn(bar, "BtnMouse", "滑鼠（預設操作；選其他工具時取消選取）", Colors.White, new Vector2(Pad, Y(5)));

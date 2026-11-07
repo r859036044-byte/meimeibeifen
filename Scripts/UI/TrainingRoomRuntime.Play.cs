@@ -89,7 +89,13 @@ public partial class TrainingRoomRuntime
         if (thrust) wet += _jijiAnus ? (_anusComfort ? WetGainThrust * AnusComfortWetMult : 0f) : WetGainThrust;   // 肛門舒服時小穴濕得比較快
         bool anything = breast || nipple || mouth || head || bTouch || lickB || thrust;
         AddWetness((anything ? wet : -WetDecay) * dt);
-        StepMale(dt, anything, thrust, sThrust);   // 精力／勃起度／精液量（PlayEnd.cs）
+        // 勃起度上升的權重：只摸胸／乳頭最輕、嘴／摸頭次之、摸 B 正常、抽插最重（取目前在做的事裡最大的）
+        float erectW = 0f;
+        if (breast || nipple) erectW = Mathf.Max(erectW, ErectWBreast);
+        if (mouth || head)    erectW = Mathf.Max(erectW, ErectWMouthHead);
+        if (bTouch || lickB)  erectW = Mathf.Max(erectW, ErectWB);
+        if (thrust)           erectW = Mathf.Max(erectW, ErectWThrust);
+        StepMale(dt, anything, thrust, sThrust, erectW);   // 精力／勃起度／精液量（PlayEnd.cs）
 
         // ── 穴高潮值 ──
         float rate = 0f;
@@ -125,6 +131,7 @@ public partial class TrainingRoomRuntime
             GD.Print($"[Play] 濕度不夠就突破（{w:F0}/{BreakWetNeed:F0}）→ 穴高潮值 -{pen:F0}");
         }
         ReactLine(enough ? ReactBreakWet : ReactBreakDry, true);
+        ShowEmote(enough ? EmoteBubble.Kind.Exclaim : EmoteBubble.Kind.Tangle);   // 濕度足夠＝驚嘆號；不夠＝毛線團
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -165,6 +172,7 @@ public partial class TrainingRoomRuntime
         int count = (breast ? 1 : 0) + (nipple ? 1 : 0) + (mouth ? 1 : 0) + (head ? 1 : 0) + (pussy ? 1 : 0) + (thrust ? 1 : 0);
         if (!ReactEnabled) { _reactPrevCount = count; return; }
 
+        EmoteOnTouchStart(_reactFlags.nipple, nipple, _reactFlags.head, head);   // 氣泡表情（Emote.cs）
         _reactFlags = (breast, nipple, mouth, head, pussy, thrust);
         if (count > _reactPrevCount) ReactNow(mouth);   // 剛開始一個新的互動（點擊）
         _reactPrevCount = count;

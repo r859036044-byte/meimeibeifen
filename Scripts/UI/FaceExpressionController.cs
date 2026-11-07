@@ -127,7 +127,7 @@ public partial class FaceExpressionController : Node
 
     static readonly string[] _allMouthKeys = new[]
     {
-        "笑","笑2","小嘴","吐舌","張嘴1","張嘴2","斜動嘴","抖動嘴","小嘴吐舌","表情/嘴巴"
+        "笑","笑2","小嘴","吐舌","張嘴1","張嘴2","斜動嘴","抖動嘴","小嘴吐舌","小嘴巴","表情/嘴巴"
     };
 
     static readonly string[] DefaultExpressionNames = new[]
@@ -212,12 +212,16 @@ public partial class FaceExpressionController : Node
     // 在所有 _Process 之後再跑（模擬 LateUpdate）
     public override void _Process(double delta)
     {
+        AnimateBrow((float)delta);   // 眉毛形態慢慢變化
         if (string.IsNullOrEmpty(_currentExpr)) return;
         if (!_exprTransformMap.TryGetValue(_currentExpr, out var overrides)) return;
 
         foreach (var ov in overrides)
         {
             if (Mathf.IsZeroApprox(ov.OffsetX) && Mathf.IsZeroApprox(ov.OffsetY)) continue;
+            // 最上層圖層（眉毛1／眉毛2 等）的位置由呼吸迴圈管，偏移量已經透過 ExprLayerExtraOffset 疊進去了；
+            // 這裡再用「存檔位置＋偏移」每幀覆蓋，會把呼吸的起伏蓋掉（眉毛不跟著呼吸的原因）
+            if (_runtime?.Layers != null && _runtime.Layers.ContainsKey(ov.LayerPath)) continue;
             var ctrl = GetLayerControl(ov.LayerPath);
             if (ctrl == null) continue;
             if (!_savedTransforms.TryGetValue(ov.LayerPath, out var saved)) continue;
@@ -372,6 +376,98 @@ public partial class FaceExpressionController : Node
             _runtime?.ExprLayerExtraOffset.Remove(kv.Key);
         }
         _savedTransforms.Clear();
+        ApplyBrowTransform();   // 表情還原的是「套表情前」的角度，眉毛形態要重新蓋回去
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  眉毛形態（跟表情獨立，可以疊在任何表情上）
+    //    Normal       初始
+    //    Frown        上下反轉（皺眉）
+    //    Angry        左眉逆時針、右眉順時針 35°（生氣）
+    //    Worried      左眉順時針、右眉逆時針 35°（煩惱）
+    //    AngryFlip / WorriedFlip  生氣／煩惱 再整個上下反轉
+    // ════════════════════════════════════════════════════════════
+
+    //  編號（跟測試面板按鈕、SetBrowForm(int) 一致）：
+    //    1 初始　2 皺眉(上下反轉)　3 生氣　4 煩惱　5 生氣(上下反轉)　6 煩惱(上下反轉)
+    public enum BrowForm { Normal = 1, Frown = 2, Angry = 3, Worried = 4, AngryFlip = 5, WorriedFlip = 6 }
+
+    /// <summary>用編號（1~6）切換眉毛形態；超出範圍忽略。</summary>
+    public void SetBrowForm(int number)
+    {
+        if (number < 1 || number > 6) return;
+        SetBrowForm((BrowForm)number);
+    }
+
+    public const float BrowTiltDeg = 35f;
+    // 眉毛內容中心（2000x3200 貼圖像素）：旋轉與上下翻轉都繞著它，才會在原地轉／翻
+    static readonly Vector2 BrowCenterLeft  = new Vector2(844.5f, 601.5f);    // 眉毛1（畫面左）
+    static readonly Vector2 BrowCenterRight = new Vector2(1066f,  585.5f);    // 眉毛2（畫面右）
+
+    BrowForm _browForm = BrowForm.Normal;
+    public BrowForm CurrentBrowForm => _browForm;
+
+    [Export] public float BrowMoveSec = 5f;   // 眉毛從一個形態慢慢變到另一個形態要幾秒（例如 2→6）；1.5 → 3 → 5
+
+    // 目前畫面上的狀態（會慢慢追向目標）：傾斜 -1（煩惱）~ 0 ~ +1（生氣）、Y 縮放 +1 正常 ~ -1 反轉
+    float _browTiltCur = 0f, _browScaleYCur = 1f;
+    float _browTiltTgt = 0f; bool _browFlipTgt = false;
+
+    /// <summary>切換眉毛形態。instant＝true 立刻到位；false 則花 BrowMoveSec 秒慢慢變過去
+    /// （2→6 就是反轉狀態下眉毛慢慢轉成煩惱的角度）。</summary>
+    public void SetBrowForm(BrowForm form, bool instant = false)
+    {
+        _browForm = form;
+        float tilt = form switch
+        {
+            BrowForm.Angry or BrowForm.AngryFlip     =>  1f,
+            BrowForm.Worried or BrowForm.WorriedFlip => -1f,
+            _ => 0f,
+        };
+        SetBrowPose(tilt, form is BrowForm.Frown or BrowForm.AngryFlip or BrowForm.WorriedFlip, instant);
+    }
+
+    /// <summary>連續版：tilt＝-1（煩惱 4／6）~ 0（初始 1／2）~ +1（生氣 3／5），flip＝上下反轉（2／5／6 那一邊）。
+    /// 在 1↔4 或 2↔6 之間的任何程度都可以，眉毛會慢慢追過去。</summary>
+    public void SetBrowPose(float tilt, bool flip, bool instant = false)
+    {
+        _browTiltTgt = Mathf.Clamp(tilt, -1f, 1f);
+        _browFlipTgt = flip;
+        if (instant)
+        {
+            _browTiltCur = _browTiltTgt;
+            _browScaleYCur = _browFlipTgt ? -1f : 1f;
+        }
+        ApplyBrowTransform();
+    }
+
+    void AnimateBrow(float dt)
+    {
+        float tgtScaleY = _browFlipTgt ? -1f : 1f;
+        if (Mathf.IsEqualApprox(_browTiltCur, _browTiltTgt) && Mathf.IsEqualApprox(_browScaleYCur, tgtScaleY)) return;
+        float step = dt * 2f / Mathf.Max(0.01f, BrowMoveSec);   // 全幅（傾斜 -1→+1、Y 縮放 +1→-1）剛好 BrowMoveSec 秒
+        _browTiltCur   = Mathf.MoveToward(_browTiltCur,   _browTiltTgt, step);
+        _browScaleYCur = Mathf.MoveToward(_browScaleYCur, tgtScaleY,    step);
+        ApplyBrowTransform();
+    }
+
+    void ApplyBrowTransform()
+    {
+        ApplyBrowLayer("眉毛1", BrowCenterLeft,  -1f);   // 左眉：生氣＝逆時針（Godot 負值）
+        ApplyBrowLayer("眉毛2", BrowCenterRight, +1f);   // 右眉：生氣＝順時針（Godot 正值）
+    }
+
+    void ApplyBrowLayer(string layer, Vector2 centerTex, float angrySign)
+    {
+        var ctrl = GetLayerControl(layer);
+        if (ctrl == null) return;
+
+        // 整個形態上下鏡射：先轉再翻 ＝ 先翻再轉相反角度（Control 是先縮放再旋轉）。
+        // 用「目標」是否反轉決定角度正負，變形途中才不會在翻到一半時角度跳掉。
+        float tilt = angrySign * _browTiltCur * BrowTiltDeg;
+        ctrl.PivotOffset     = centerTex * ctrl.Size / new Vector2(2000f, 3200f);
+        ctrl.Scale           = new Vector2(1f, _browScaleYCur);
+        ctrl.RotationDegrees = _browFlipTgt ? -tilt : tilt;
     }
 
     Control GetLayerControl(string layerPath)
@@ -493,7 +589,7 @@ public partial class FaceExpressionController : Node
     {
         var mouthLayerNames = new[]
         {
-            "笑", "笑2", "小嘴", "吐舌", "張嘴1", "張嘴2", "斜動嘴", "抖動嘴", "小嘴吐舌", "表情/嘴巴"
+            "笑", "笑2", "小嘴", "吐舌", "張嘴1", "張嘴2", "斜動嘴", "抖動嘴", "小嘴吐舌", "小嘴巴", "表情/嘴巴"
         };
         if (PartGroups == null) PartGroups = System.Array.Empty<FacePartGroup>();
 
@@ -609,7 +705,7 @@ public partial class FaceExpressionController : Node
         var mouthOverrides = new Dictionary<string, string>
         {
             { "插入1",      "抖動嘴"    },
-            { "插入2",      "小嘴吐舌"  },
+            { "插入2",      "小嘴巴"    },   // 完全突破：小嘴巴
             { "做愛(半閉)", "表情/嘴巴" },
             { "做愛(全閉)", "小嘴"      },
             { "做愛3",      "小嘴"      },

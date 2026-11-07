@@ -54,6 +54,8 @@ public partial class EyeCloseController : Node
         /// 用來微調眼淚圖層的基準高度，跟 OffsetY（張嘴/流淚動畫用的動態位移）分開，
         /// 不影響原本的擴張/位移動畫邏輯。</summary>
         [Export] public float   ExtraOffsetY = 0f;
+        /// <summary>固定向左平移的量（px）：整個眼淚圖往左 ExtraLeft。</summary>
+        [Export] public float   ExtraLeft = 0f;
     }
 
     [Serializable]
@@ -483,7 +485,9 @@ public partial class EyeCloseController : Node
         if (_expressionClosed || _expressionClosed2 || _expressionClosed3) return;
         _targetClose = true;
         await DelaySeconds(BlinkCloseTime);
-        _targetClose = false;
+        // 眨眼途中如果表情剛好換成閉眼（插入／拔出時常常這樣），不能無條件睜開，會把閉眼表情蓋掉、
+        // 眼睛在不該睜開的時候睜開，閉眼和睜眼動畫還同時在跑（看起來像多一雙眼睛）。回到「目前表情要求的狀態」。
+        _targetClose = _expressionClosed || _expressionClosed2 || _expressionClosed3;
         float openWait = AnimSpeed > 0f ? 1f / AnimSpeed : 0f;
         await DelaySeconds(openWait);
     }
@@ -584,6 +588,7 @@ public partial class EyeCloseController : Node
             sz.X = p.OpenWidth + p.ExpandX * tearT;
             p.RT.Size = sz;
             var pos = p.RT.Position;
+            pos.X = p.OpenPos.X - p.ExtraLeft;
             pos.Y = p.OpenPos.Y - p.OffsetY * tearT + p.ExtraOffsetY; // Unity Y 朝上→負轉正；ExtraOffsetY 是固定微調
             p.RT.Position = pos + breathV;
         }

@@ -461,6 +461,14 @@ public partial class TrainingRoomRuntime
                 Name = "PantyOnBed", Texture = panty.Texture, MouseFilter = Control.MouseFilterEnum.Ignore,
                 ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize, StretchMode = TextureRect.StretchModeEnum.Scale,
             };
+            var bowTex = ResourceHelper.LoadTexAny("Sprites/蝴蝶結");   // 內褲上的蝴蝶結：脫下來之後也跟著出現在床上的內褲上
+            if (bowTex != null)
+                _pantyBed.AddChild(new TextureRect
+                {
+                    Name = "BowOnPanty", Texture = bowTex, MouseFilter = Control.MouseFilterEnum.Ignore,
+                    ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize, StretchMode = TextureRect.StretchModeEnum.Scale,
+                    Position = BowPantyOffsetPx, Size = bowTex.GetSize(),
+                });
             _canvas.AddChild(_pantyBed);
             _canvas.MoveChild(_pantyBed, _duvetKicked.GetIndex() + 1);   // 在踢開的被子上面、角色下面
         }

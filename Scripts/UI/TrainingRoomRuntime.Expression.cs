@@ -154,13 +154,19 @@ public partial class TrainingRoomRuntime : Node
         // 使用者反應眼淚圖層的高度要整體往下移 3px，這裡統一對 4 個眼淚圖層都加上
         // ExtraOffsetY=3（Godot 座標，正值＝往下），之後如果只想動其中某幾個，
         // 直接在 Inspector 個別調整 ExtraOffsetY 即可，不用改程式碼。
-        const float tearExtraOffsetY = 3f;
+        const float tearExtraOffsetY = 5.3f;   // 3→4.5→5.3：再往下 0.8px
+        const float tearExtraLeft = 8f;        // 左右眼的眼淚都整個向左移 8px（原本 3，再向左 5）
+        const float tearExpandX = 30f;         // 閉眼時眼淚拉長的量（原 20）
+        // 閉眼時眼淚要停在「睫毛和臉的交界處」：Unity 版眼淚是掛在下睫毛底下的子物件，閉眼時下睫毛往上移 20（CloseOffsetY = +20），
+        // 眼淚跟著它一起移；Godot 版眼淚是獨立圖層、OffsetY 原本是 0，所以閉眼後眼淚留在原位，掉到睫毛下面一截。
+        // 這裡讓眼淚的閉眼位移跟下睫毛一樣（OffsetY＝下睫毛的 CloseOffsetY，Unity 座標往上為正）。
+        const float tearCloseFollow = 20f;
         ctrl.TearParts = new EyeCloseController.TearPart[]
         {
-            new EyeCloseController.TearPart { RT = Get("表情/眼淚1"), EyeGroup = 1, ExtraOffsetY = tearExtraOffsetY },
-            new EyeCloseController.TearPart { RT = Get("表情/眼淚2"), EyeGroup = 1, ExtraOffsetY = tearExtraOffsetY },
-            new EyeCloseController.TearPart { RT = Get("表情/眼淚3"), EyeGroup = 2, ExtraOffsetY = tearExtraOffsetY },
-            new EyeCloseController.TearPart { RT = Get("表情/眼淚4"), EyeGroup = 2, ExtraOffsetY = tearExtraOffsetY },
+            new EyeCloseController.TearPart { RT = Get("表情/眼淚1"), EyeGroup = 1, ExpandX = tearExpandX, ExtraLeft = tearExtraLeft, ExtraOffsetY = tearExtraOffsetY, OffsetY = tearCloseFollow },
+            new EyeCloseController.TearPart { RT = Get("表情/眼淚2"), EyeGroup = 1, ExpandX = tearExpandX, ExtraLeft = tearExtraLeft, ExtraOffsetY = tearExtraOffsetY, OffsetY = tearCloseFollow },
+            new EyeCloseController.TearPart { RT = Get("表情/眼淚3"), EyeGroup = 2, ExpandX = tearExpandX, ExtraLeft = tearExtraLeft, ExtraOffsetY = tearExtraOffsetY, OffsetY = tearCloseFollow },
+            new EyeCloseController.TearPart { RT = Get("表情/眼淚4"), EyeGroup = 2, ExpandX = tearExpandX, ExtraLeft = tearExtraLeft, ExtraOffsetY = tearExtraOffsetY, OffsetY = tearCloseFollow },
         };
 
         // 全閉2（睫毛上下翻轉，"反過來的閉眼"）／半閉2（下睫毛翻轉）：

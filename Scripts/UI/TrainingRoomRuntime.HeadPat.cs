@@ -25,7 +25,7 @@ public partial class TrainingRoomRuntime
     [Export] public Vector2 HeadPatHandNudge    = new Vector2(0f, 40f);    // 手的位置微調（場景 px，Y 正＝往下）
     [Export] public Vector2 HeadPatHandPivot    = new Vector2(0.5f, 0.5f);   // 手的旋轉錨點（手圖的比例 0~1）；這個點會貼在頭上，旋轉時它不動
     [Export] public float   HeadPatHandWobbleDeg = 1.5f;   // 撫摸時手的左右擺動角度
-    [Export] public Vector2 HeadPatHandNudgeLeft   = new Vector2(0f, 40f);   // 左手（鏡像那隻）的位置微調，跟右手分開調
+    [Export] public Vector2 HeadPatHandNudgeLeft   = new Vector2(10f, -12f);   // 左手（鏡像那隻）的位置微調，跟右手分開調
     [Export] public float   HeadPatHandBaseRotLeft = 30f;                    // 左手的基本角度（正＝順時針，右手 -30 的鏡像）
     [Export] public float   HeadPatHandBaseRot  = -30f;    // 手的基本角度（負＝逆時針；左手自動鏡像）
     [Export] public float   HeadPatLagPx        = 40f;     // 重力／慣性：髮尾最大延遲位移（貼圖 px，後髮最多）
@@ -215,6 +215,7 @@ public partial class TrainingRoomRuntime
         UpdateTongue(dt);    // 舌頭（Tongue.cs）：放在摸頭之後，才能跟著臉的最終位置
         foreach (var name in _headLayerSet)  PatLayer(name, headDeg, 0f, Vector2.Zero);
         foreach (var name in _patHeadExtra)  PatLayer(name, headDeg, 0f, Vector2.Zero);
+        UpdateInsertMouth(dt);   // 插入時嘴巴放大、越舒服越小（InsertMouth.cs）
         if (_patCur == 0f) _patApplied.Clear();
     }
 

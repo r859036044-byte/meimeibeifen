@@ -98,7 +98,9 @@ public partial class NovelReader : Node
     }
     public void BeginLine(string speaker, string text)
     {
-        PlayDailyVoice(speaker, text);
+        // 這行語音已在台詞開始時提前播放過，就不重播（避免從頭再來）
+        if (_voicePre && _voicePreText == text) _voicePre = false;
+        else { _voicePre = false; PlayDailyVoice(speaker, text); }
         LineVersion++;
         _elapsed = 0;
         _length = text?.Length ?? 0;

@@ -89,8 +89,10 @@ public partial class TrainingRoomRuntime
             await WaitSecAsync(0.3f);
 
             _creampieAmount += Mathf.Max(1, Mathf.RoundToInt(_ejacMul * 1.5f));
+            StartSemenFlow();   // 雞雞上的精液圖層：從尖端慢慢出現，銜接處聚集白色再暈開流開（Jiji.cs）
             _sweat = Mathf.Min(1f, _sweat + SweatOnEjac);
             await MoveInsertAsync(deep, baseY, 0.5f);
+            if (IsInstanceValid(this) && _jijiPhase == 3) { _s2Paused = true; _s2SpeedLv = 0f; _pullActive = false; _playForced = false; }   // 內射後停止抽插，回到插入待機
         }
         finally
         {
@@ -230,7 +232,9 @@ public partial class TrainingRoomRuntime
     void OnPulledOutWithCreampie()
     {
         // 拔出後破處流血就結束（_firstTimeBleeding 還留著，給這次內射的粉紅精液用）
-        _bleedActive = false; _jijiBloodBurst = false; _jijiBlood = 0f; _jijiBloodBlur = 0f;
+        _bleedActive = false; _jijiBloodBurst = false;   // 雞雞上沾的血不清掉，會殘留到用衛生紙擦掉為止
+        foreach (var r in _jijiBloodRoots) if (r.Outer != null && IsInstanceValid(r.Outer)) r.Outer.QueueFree();   // 拔出後血只從洞流，雞雞上的血流一律收掉
+        _jijiBloodRoots.Clear();
         if (_creampieAmount <= 0)
         {
             // 沒有內射但第一次：拔出後洞口流下兩道血
@@ -395,6 +399,8 @@ void fragment() {
     int   _holeBloodDrips;                  // 這次破處洞口已經滲出的血滴數
     [Export] public int HoleBloodDripMax = 8;   // 洞口滲血的總數上限（雞雞上的血會自己淡掉，不設限）
     float _bloodSeed;
+    float _bleedT;                                      // 破處後流血已經過了幾秒
+    [Export] public float BleedStopSec = 60f;           // 破處後流血持續幾秒，超過就不再流血／滲血
 
     /// <summary>突破時呼叫：還是處女 → 破處（PlayerDataManager.TriggerVirginityLoss），開始流血。</summary>
     void OnBreakthroughBleed()
@@ -402,7 +408,7 @@ void fragment() {
         var pdm = PlayerDataManager.Instance;
         if (pdm == null || !pdm.IsVirgin) { _firstTimeBleeding = false; _bleedActive = false; return; }   // 已不是處女：不再觸發
         pdm.TriggerVirginityLoss();
-        _firstTimeBleeding = true; _bleedActive = true;
+        _firstTimeBleeding = true; _bleedActive = true; _bleedT = 0f;
         _bloodSeed = Rf(0f, 100f);   // 每次破處血痕分布都不同
         _jijiBlood = Mathf.Max(_jijiBlood, 0.35f);
         _jijiBloodBlur = 0f;
@@ -550,6 +556,11 @@ void fragment() {
     /// <summary>每幀：破處後抽插時雞雞越來越沾血，偶爾洞口再滲一點血。</summary>
     void UpdateBleeding(float dt)
     {
+        if (_bleedActive)
+        {
+            _bleedT += dt;
+            if (_bleedT >= BleedStopSec) { _bleedActive = false; GD.Print("[Jiji] 流血結束（已滿 " + BleedStopSec + " 秒）"); }
+        }
         if (!_bleedActive || _jijiPhase != 3 || _jijiStage < 1) return;
         bool thrusting = !_s2Paused && !_pullOutAnim;
         if (thrusting) _jijiBlood = Mathf.Min(1f, _jijiBlood + JijiBloodGainPerSec * dt * (0.5f + _s2Sin));

@@ -34,6 +34,9 @@ public partial class TrainingRoomRuntime
     /// <summary>Phase 2：點 B 衝到的位置微調，單位是「螢幕 px」（正＝往下）。
     /// 之前是用角色畫布 px（角色整體縮小到 31.5%），使用者說往下 10px 實際畫面上只動了 3px 左右，
     /// 看起來像沒動；改成螢幕 px，執行時自動換算成畫布 px。使用者累計要求 10+15+20 ＝ 45。</summary>
+    [Export] public float JijiInsertOverlapPx = 6f;   // 抽插時雞雞裁切線再往上讓幾 px（螢幕 px），雞雞多伸進插入層底下，避免兩者之間露出縫（0＝不補）
+    [Export] public float JijiInsertOffsetX = -1f;   // 插入時雞雞＋精液額外左右微調（畫布 px，負＝向左）
+    [Export] public float JijiBellyOffsetX = -1f;   // 男人肚子（雞雞的肚子）單獨左右微調（畫布 px，負＝向左）
     [Export] public Vector2 JijiPhase2Offset     = new Vector2(7f, 51f);   // X：男人肚子＋雞雞往右 3 → 5；Y：45 → 47 → 49 → 51
     /// <summary>雞雞（連同精液）以底部為錨點的旋轉角度（度，Godot 正＝順時針；-1.5 ＝ 逆時針 1.5 度）。</summary>
     [Export] public float   JijiRotationDeg      = -1.5f;
@@ -144,11 +147,33 @@ public partial class TrainingRoomRuntime
     ShaderMaterial _jijiClipMat;
 
     static readonly string[] _jijiLayers = { "雞雞", "男人肚子", "精液" };
+    ShaderMaterial _jijiSemMat;
+    string[] _jijiUniformNames;
+    float _glansLen, _glansRamp;   // 龜頭白色暈染：長度（貼圖 px）、淡入進度
+    [Export] public float GlansWhiteOuterPx = 130f;   // 外射後：白色暈染從龜頭往下多長（貼圖 px）
+    [Export] public float GlansWhiteInnerPx = 270f;   // 內射後：白色暈染的長度（約半個雞雞）
+    public float _semAlpha = 1f;   // 雞雞上精液的殘留程度（用衛生紙擦會降低）
+    float _semReveal = 1f, _semPool, _semSpread, _semFlow, _semT = -1f;   // 內射後精液動畫（_semT<0＝沒在播）
+    [Export] public float SemRevealSec = 7f;    // 內射後精液從尖端到根部出現的秒數
+    [Export] public float SemFlowSec   = 16f;   // 銜接處白色聚集→暈開→流開到消失的總秒數
     bool _jijiSemenShown;   // 雞雞上的「精液」圖層：射精後才顯示，收起雞雞或清精液時隱藏
 
     /// <summary>射精時呼叫：雞雞有出現的話，雞雞上的精液圖層跟著出現。</summary>
-    public void ShowJijiSemen() { if (_jijiPhase > 0) _jijiSemenShown = true; }
-    public void HideJijiSemen() { _jijiSemenShown = false; SetLayerQuiet("精液", false); }
+    /// <summary>內射後呼叫：精液從尖端到根部慢慢出現，銜接處聚集白色後暈開、流開。</summary>
+    public void StartSemenFlow() { if (_jijiPhase > 0) { _glansLen = GlansWhiteInnerPx; _jijiSemenShown = true; _semT = 0f; _semReveal = 0f; _semPool = 0f; _semSpread = 0f; _semFlow = 0f; } }
+    void UpdateSemenFlow(float dt)
+    {
+        if (_semT < 0f) { _semReveal = 1f; _semPool = 0f; return; }
+        _semT += dt;
+        _semReveal = Mathf.Clamp(_semT / Mathf.Max(0.1f, SemRevealSec), 0f, 1f);
+        float tt = _semT / Mathf.Max(1f, SemFlowSec);            // 0~1
+        _semPool   = Mathf.SmoothStep(0f, 0.12f, tt) * (1f - Mathf.SmoothStep(0.35f, 1f, tt));   // 先聚集變濃，之後慢慢淡掉
+        _semSpread = Mathf.SmoothStep(0.1f, 0.9f, tt);           // 越來越暈開
+        _semFlow   = Mathf.SmoothStep(0.05f, 1f, tt);            // 往下流
+        if (_semT > SemFlowSec) { _semT = -1f; _semReveal = 1f; _semPool = 0f; }
+    }
+    public void ShowJijiSemen() { if (_jijiPhase > 0) { if (!_jijiSemenShown) _glansLen = GlansWhiteOuterPx; _jijiSemenShown = true; _semT = -1f; _semReveal = 1f; } }
+    public void HideJijiSemen() { _jijiSemenShown = false; _semAlpha = 1f; _glansLen = 0f; _glansRamp = 0f; _semT = -1f; _semReveal = 1f; _semPool = 0f; SetLayerQuiet("精液", false); }
 
     /// <summary>開1／洞 跟著插入深度的額外位移，由呼吸迴圈疊加在基準位置上（見 Effects.cs 一般圖層迴圈）。</summary>
     public readonly System.Collections.Generic.Dictionary<string, Vector2> JijiLayerExtraOffset = new();
@@ -200,6 +225,7 @@ public partial class TrainingRoomRuntime
     [Export] public float AnusOpenSpeed   = 6f;     // 撐開／收回的跟隨速度
     [Export] public float AnusClipOffsetPx = 10f;     // 肛門目標：裁切線相對「肛門圖層上緣」的位置（螢幕 px，正＝往下、負＝往上）
     [Export(PropertyHint.Range, "0,0.8,0.01")] public float AnusTaperMax = 0.12f;     // 突破後肛門下方雞雞變細的最大比例（0.3＝窄 30%）
+    [Export(PropertyHint.Range, "0,0.8,0.01")] public float PussyTaperMax = 0.08f;   // 插入小穴後，雞雞靠近交接處變細的最大比例（0＝不變細）
     [Export] public float AnusTaperArchPx  = 10f;   // 變細起點的弧形：兩側比中間再往下多少 px（0＝水平）
     [Export] public float AnusTaperStartPx = 5f;    // 變細從裁切線（肛門）往下多少 px 開始
     [Export] public float AnusTaperLenPx   = 40f;   // 變細往下漸層到消失的長度（螢幕 px）；越上面越細
@@ -218,8 +244,14 @@ public partial class TrainingRoomRuntime
                 if (Layers.TryGetValue(n, out var l) && l != null && l.GetParent() == _charRoot) target = Mathf.Max(target, l.GetIndex());
             if (target >= 0 && an.GetIndex() < target) _charRoot.MoveChild(an, target);
         }
-        else if (Layers.TryGetValue("前髮", out var hair) && hair != null && hair.GetParent() == _charRoot && an.GetIndex() > hair.GetIndex())
-            _charRoot.MoveChild(an, hair.GetIndex());
+        else
+        {   // 不是肛門目標：肛門要放回「雞雞／洞／開1／插入…這一組的最下面」，不能留在雞雞上面。
+            // （以前放回的是「前髮前面」＝雞雞上面，而且只在肛門排在前髮後面時才會動，所以肛門插過一次之後，肛門會一直跑到雞雞上面）
+            int min = int.MaxValue;
+            foreach (var n in new[] { "洞", "雞雞", "精液", "開上", "開1", "插入", "男人肚子" })
+                if (Layers.TryGetValue(n, out var l) && l != null && l.GetParent() == _charRoot) min = Mathf.Min(min, l.GetIndex());
+            if (min != int.MaxValue && an.GetIndex() > min) _charRoot.MoveChild(an, min);
+        }
     }
 
     void UpdateAnusDeform(float dt)
@@ -342,7 +374,6 @@ void fragment() {
         _jijiPhase2Pos = CalcPhase2Offset();
         _jijiOffset = _jijiPhase2Pos + new Vector2(0f, JijiDefaultOffsetY);
         foreach (var n in _jijiLayers) SetLayerQuiet(n, n != "精液");   // 精液射精後才出現
-        _jijiSemenShown = false;
         EnsureJijiClip();
         // 原地淡入（不滑動，對照 Unity JijiAppearCoroutine）
         _ = AnimateJijiAsync(null, fadeIn: true, JijiAppearDuration);
@@ -354,7 +385,7 @@ void fragment() {
         _holeTopAlpha = 0f;
         foreach (var n in new[] { "開1", "洞", "開上", "插入", "肚子" })
         {
-            if (keepHole && n == "洞") continue;
+            if (keepHole && (n == "洞" || n == "開1")) continue;   // 拔出後洞和頂部（開1 的 Λ）一起留著、一起縮小
             if (!Layers.TryGetValue(n, out var c) || c == null) continue;
             c.Visible = false;
             c.Scale = Vector2.One;
@@ -410,8 +441,7 @@ void fragment() {
     void HideJiji()
     {
         _creampieAmount = 0;
-        _firstTimeBleeding = false; _jijiBlood = 0f;
-        _jijiSemenShown = false;
+        _firstTimeBleeding = false;   // 雞雞上的血和精液不隨收起消失，要用衛生紙擦掉（Tissue.cs）
         HideOpenAndInsertLayers();
         _jijiAnimCts?.Cancel();
         _jijiAnimating = false;
@@ -461,6 +491,7 @@ void fragment() {
     void StartInsertion()
     {
         if (!_mLegOpen) { GD.Print("[Jiji] 沒開 M 腿：不能插入／突破"); return; }
+        if (!_jijiAnus && MPantyBlocksInsert) { GD.Print("[Jiji] 內褲還穿著：要先把內褲向右撥開才能插入"); return; }
         SayMaleEv(MaleInsertLines);   // 一般腿只能靠近，不能向上突破
         _holeLeftOpen = false;   // 重新插入：洞回到一般的張開邏輯
         _jijiPhase = 3; _jijiStage = 0; _jijiInsertY = 0f;
@@ -572,8 +603,8 @@ void fragment() {
         foreach (var n in _jijiLayers)
         {
             if (!Layers.TryGetValue(n, out var c) || c == null) continue;
-            if (_layerBasePos.TryGetValue(n, out var bp)) c.Position = bp + off;
-            c.Modulate = new Color(1f, 1f, 1f, _jijiAlpha);
+            if (_layerBasePos.TryGetValue(n, out var bp)) c.Position = bp + off + (n == "男人肚子" ? new Vector2(JijiBellyOffsetX, 0f) : (_jijiPhase == 3 && _jijiStage >= 1 ? new Vector2(JijiInsertOffsetX, 0f) : Vector2.Zero));
+            c.Modulate = new Color(1f, 1f, 1f, _jijiAlpha * (n == "精液" ? _semAlpha : 1f));
             if (n == "精液") c.Visible = _jijiSemenShown;
             // 雞雞／精液：以雞雞底部中央為錨點微旋轉（男人肚子不轉）
             if (n != "男人肚子")
@@ -605,6 +636,8 @@ void fragment() {
             // 肛門：裁切線直接放在肛門圖層（變形後）的上緣，雞雞一進到肛門上面就被裁掉
             if (_jijiAnus && _jijiPhase >= 2 && _anusBoxSet && _anusBox.Size.X > 0f && Layers.TryGetValue("m腿/肛門", out var anL) && anL != null)
                 clipLocalY = _anusBox.Position.Y - (AnusRisePx + AnusArchPx) * aw + anL.Position.Y - jj.Position.Y + AnusClipOffsetPx / CharScreenScale();
+            // 抽插時插入和雞雞之間可能露出縫：雞雞的裁切線再往上讓一點點，讓雞雞多伸進插入層底下（插入層蓋在雞雞上面，所以看不到多出來的部分）
+            if (_jijiPhase == 3 && _jijiStage >= 1 && !_jijiAnus) clipLocalY -= JijiInsertOverlapPx / CharScreenScale();
             // 紅暈／血的定位線：不跟雞雞走，只跟「插入」層走（入口線＋插入層此刻實際的位移）
             _junctionSmooth = (_jijiPhase == 3 && _jijiStage >= 1) ? clipBaseY + _insShownY : clipBaseY;
             _jijiClipMat.SetShaderParameter("junction_px", _junctionSmooth);
@@ -629,10 +662,40 @@ void fragment() {
             _jijiFlush = Mathf.MoveToward(_jijiFlush, flushOn ? 1f : 0f, (float)GetProcessDeltaTime() * (flushOn ? 0.7f : 0.8f));
             _jijiClipMat.SetShaderParameter("flush_amt", _jijiFlush);
             _jijiClipMat.SetShaderParameter("circle_rise_px", JijiTouchDepth() * JijiClipCircleFollow);
-            _jijiClipMat.SetShaderParameter("taper_k", (_jijiAnus && _jijiPhase == 3 && _jijiStage >= 1) ? AnusTaperMax * aw : 0f);
+            float taperK_ = (_jijiPhase == 3 && _jijiStage >= 1) ? (_jijiAnus ? AnusTaperMax * aw : PussyTaperMax) : 0f;
+            _jijiClipMat.SetShaderParameter("taper_k", taperK_);   // 插入小穴時雞雞和插入物件交接處也往中間收，配合插入物件的寬度
+            // 雞雞左緣（x≈892）離收縮中線（x≈998）約 106px，變細時左緣被往右縮 taperK_*106；
+            // 插入物件的左下角也往內（右）縮同樣的量，跟著雞雞的左緣走（雞雞本身不動）
+            if (_insertEdgeMat != null)
+                _insertEdgeMat.SetShaderParameter("wid_lb", (InsertShrinkBottomLeftPx + taperK_ * 106f * InsertShrinkTaperFollow) / 210f);
             _jijiClipMat.SetShaderParameter("taper_start_px", clipLocalY + AnusTaperStartPx * s2c);
             _jijiClipMat.SetShaderParameter("taper_len_px", AnusTaperLenPx * s2c);
             _jijiClipMat.SetShaderParameter("taper_arch_px", AnusTaperArchPx * s2c);
+            UpdateSemenFlow((float)GetProcessDeltaTime());
+            _glansRamp = Mathf.MoveToward(_glansRamp, _jijiSemenShown ? 1f : 0f, (float)GetProcessDeltaTime() / 1.5f);   // 射完後慢慢染開
+            _jijiClipMat.SetShaderParameter("gw_amt", _glansRamp * _semAlpha * 0.85f);
+            _jijiClipMat.SetShaderParameter("gw_len", Mathf.Max(_glansLen, 1f));
+            _jijiClipMat.SetShaderParameter("gw_from", (_jijiPhase == 3 && _jijiStage >= 1) ? clipLocalY : 1585f);
+            _jijiClipMat.SetShaderParameter("sem_reveal", 1f);
+            _jijiClipMat.SetShaderParameter("sem_pool", _semPool);
+            _jijiClipMat.SetShaderParameter("sem_spread", _semSpread);
+            _jijiClipMat.SetShaderParameter("sem_flow", _semFlow);
+            if (_jijiSemMat != null)
+            {
+                if (_jijiUniformNames == null)
+                {   // 只在第一次列出參數名稱，之後每幀不再配置記憶體（之前每幀重新列表造成很卡）
+                    var names = new System.Collections.Generic.List<string>();
+                    foreach (var u in _jijiClipMat.Shader.GetShaderUniformList())
+                    {
+                        string un = (string)((Godot.Collections.Dictionary)u)["name"];
+                        if (!un.StartsWith("sem_") && !un.StartsWith("gw_")) names.Add(un);
+                    }
+                    _jijiUniformNames = names.ToArray();
+                }
+                foreach (var un in _jijiUniformNames) _jijiSemMat.SetShaderParameter(un, _jijiClipMat.GetShaderParameter(un));
+                _jijiSemMat.SetShaderParameter("sem_on", 1f);
+                _jijiSemMat.SetShaderParameter("sem_reveal", _semReveal);
+            }
             if (ClipDebug) UpdateClipDebugOverlay(jj, clipLocalY, s2c);
             else if (_clipDebugOverlay != null) _clipDebugOverlay.Visible = false;
         }
@@ -687,7 +750,14 @@ void fragment() {
                 if (_openLayerPivot.TryGetValue("洞", out var hpv)) hl.PivotOffset = hpv;
                 hl.Visible = true;
                 hl.Scale = new Vector2(_holeLeftScale, 1f);
-                if (!lickingB && _holeLeftScale < full * 0.01f) { hl.Visible = false; _holeLeftOpen = false; }   // 完全合起來
+                if (Layers.TryGetValue("開1", out var tp) && tp != null)
+                {   // 頂部（開1）跟洞同一個縮放、同一個中心一起縮小，洞合起來頂部也一起消失
+                    if (_openLayerPivot.TryGetValue("開1", out var tpv)) tp.PivotOffset = tpv;
+                    SetOverlayOffset("開1", tp, new Vector2(JijiOpen1OffsetX / CharScreenScale(), JijiOverlayOffsetY / CharScreenScale()));
+                    tp.Visible = true;
+                    tp.Scale = new Vector2(_holeLeftScale, 1f);
+                }
+                if (!lickingB && _holeLeftScale < full * 0.01f) { hl.Visible = false; _holeLeftOpen = false; if (Layers.TryGetValue("開1", out var tp2) && tp2 != null) { tp2.Visible = false; tp2.Scale = Vector2.One; JijiLayerExtraOffset.Remove("開1"); } }   // 完全合起來
             }
             return;
         }
@@ -903,6 +973,7 @@ void fragment() {
     {
         if (_pullOutAnim) return;
         SayMaleEv(MalePullOutLines, true);
+        _ = PullOutExprSeqAsync();   // 拔出後表情：抖動嘴 2 秒 → 小嘴巴 → 越來越平淡（InsertMouth.cs）
         _pullOutAnim = true;
         _pullActive = false;
         _resistBodyPushY = 0f;
@@ -1005,6 +1076,7 @@ void fragment() {
                 if (_resistProgress <= 0f)
                 {
                     _resistProgress = 0f; _resistBlocking = false; _resistBodyPushY = 0f; _jijiSurgeVel = 0f;
+                    if (FaceController != null && FaceController.CurrentExpression == "插入1" && !string.IsNullOrEmpty(_preResistExpr)) FaceController.SetExpression(_preResistExpr);   // 突破失敗：表情還原
                     if (_jijiStage == 0) { BackToPhase2("突破失敗（Stage 0）"); return; }
                     _jijiMovingUp = false;           // Stage 1+：停在原地，按住往上拖可再挑戰
                     _jijiInsertY = Mathf.Min(_jijiInsertY, stageMaxY);
@@ -1026,6 +1098,8 @@ void fragment() {
                 _resistTarget = Mathf.Max(target, 1f);
                 _resistProgress = 0f;
                 _resistBlocking = true;
+                _preResistExpr = FaceController?.CurrentExpression;
+                FaceController?.SetExpression("插入1");   // 按住突破中：抖動嘴
                 GD.Print($"[Jiji] Stage {_jijiStage} 到上限 → 阻力（目標 {_resistTarget:F0}，按住左鍵累積）");
             }
             else
@@ -1052,16 +1126,10 @@ void fragment() {
         if (!_jijiAnus) OnBreakthroughBleed();   // 第一次（處女）→ 破處流血（InsertEjac.cs）；肛門不套用
         // 玩法串接（Play.cs）：濕度不夠就硬突破 → 穴高潮值下降（越乾扣越多）
         OnBreakthroughWetCheck();
-        _ = BreakthroughExprAsync();
+        FaceController?.SetExpression("插入2");   // 完全突破：小嘴巴
     }
 
-    /// <summary>突破表情：插入1（1 秒）→ 插入2（對照 Unity BreakthroughExprCoroutine）。</summary>
-    async System.Threading.Tasks.Task BreakthroughExprAsync()
-    {
-        FaceController?.SetExpression("插入1");
-        await ToSignal(GetTree().CreateTimer(1.0), SceneTreeTimer.SignalName.Timeout);
-        if (IsInstanceValid(this) && _jijiPhase == 3) FaceController?.SetExpression("插入2");
-    }
+    string _preResistExpr;   // 開始按住突破之前的表情（突破失敗時還原）
 
     float WetnessRatio()
     {
@@ -1269,6 +1337,9 @@ void fragment() {
 uniform float radius = 4.0;
 uniform float wid_l = 0.428;   // 插入內容左緣 U（向右擴張的基準）
 uniform float wid_s = 0.0;     // 向右擴張比例
+uniform float wid_b = 0.0;     // 只有底部額外的向右擴張比例：讓插入物件的右下角伸到雞雞的右緣（貼齊）
+uniform float wid_r = 0.545;   // 插入內容右緣 U（左下角內縮的基準）
+uniform float wid_lb = 0.0;    // 只有底部的左邊往內（往右）縮的比例：讓插入物件的左下角縮進來貼齊雞雞的左緣
 varying vec4 vcol;
 void vertex() { vcol = COLOR; }
 void fragment() {
@@ -1279,7 +1350,10 @@ void fragment() {
     float side   = smoothstep(0.45, 1.0, abs(UV.x - cx) / halfw);          // 越靠左右兩側越強
     float bottom = smoothstep(1320.0 * texel.y, 1400.0 * texel.y, UV.y);   // 只有底部
     float w = side * bottom;
-    vec2 UVw = vec2(UV.x > wid_l ? wid_l + (UV.x - wid_l) / (1.0 + wid_s) : UV.x, UV.y);   // 向右擴張
+    float wb_ = smoothstep(1330.0 * texel.y, 1430.0 * texel.y, UV.y);   // 越靠底部越多
+    float wid_ = wid_s + wid_b * wb_;
+    float ux_ = UV.x < wid_r ? wid_r - (wid_r - UV.x) / (1.0 - min(wid_lb * wb_, 0.9)) : UV.x;   // 左邊往內縮（只有底部，越靠底越多）：內容往右壓，左下角離開左邊、靠向雞雞
+    vec2 UVw = vec2(ux_ > wid_l ? wid_l + (ux_ - wid_l) / (1.0 + wid_) : ux_, UV.y);   // 向右擴張（底部額外多一些）
     vec4 c = texture(TEXTURE, UVw);
     if (w > 0.001) {
         vec4 acc = vec4(0.0);
@@ -1327,6 +1401,15 @@ uniform float circle_rise_px = 0.0;   // 雞雞碰到開1 之後，裁切圓跟�
 uniform float blood_amt = 0.0;        // 第一次（破處）時雞雞上沾的血（0~1）
 uniform float junction_px = 0.0;     // 平滑後的入口線（雞雞本地像素），紅暈／血的定位用
 uniform float flush_amt = 0.0;        // 0~1：插入時入口的淡淡紅暈（不論是不是處），平滑漸入漸出
+uniform float gw_amt = 0.0;            // 射精後龜頭白色暈染的濃度 0~1
+uniform float gw_len = 130.0;          // 白色暈染從龜頭往下的長度（貼圖 px）
+uniform float gw_from = 1585.0;        // 暈染起點（貼圖 px；外射＝龜頭尖端、內射＝插入銜接處）
+uniform float sem_on = 0.0;            // 1＝這是「精液」圖層用的材質（雞雞本體為 0）
+uniform float sem_reveal = 1.0;        // 精液從尖端到根部慢慢出現的進度 0~1
+uniform float sem_len = 520.0;         // 出現範圍的總長度（貼圖 px）
+uniform float sem_pool = 0.0;          // 雞雞和插入銜接處聚集的白色濃度 0~1
+uniform float sem_spread = 0.0;        // 白色暈開的程度 0~1
+uniform float sem_flow = 0.0;          // 白色往下流開的進度 0~1
 uniform float blood_blur = 0.0;       // 0~1：抽插久了血越來越模糊、變淡
 uniform float blood_seed = 0.0;       // 每次破處隨機，血痕分布每次都不一樣
 float bhash(float n) { return fract(sin(n * 12.9898 + blood_seed * 78.233) * 43758.5453); }
@@ -1342,7 +1425,8 @@ void fragment() {
     if (taper_k > 0.0005) {   // 肛門突破後：靠近肛門的地方雞雞往中間收（越上面越細，往下漸層消失）
         float tdx_ = clamp(abs(UV.x - 998.0 / 2000.0) / (134.5 / 2000.0), 0.0, 1.0);
         float ddp_ = UV.y / TEXTURE_PIXEL_SIZE.y - taper_start_px - taper_arch_px * tdx_ * tdx_;   // 弧形：兩側晚一點才開始
-        float tk_ = taper_k * (1.0 - clamp(ddp_ / max(taper_len_px, 1.0), 0.0, 1.0));
+        float tu_ = clamp((ddp_ + 5.0) / (max(taper_len_px, 1.0) + 5.0), 0.0, 1.0);   // 起點上方 5px 先緩緩收，不要突然歪進去
+        float tk_ = taper_k * (1.0 - tu_ * tu_ * (3.0 - 2.0 * tu_));
         float cxu_ = 998.0 / 2000.0;
         c = texture(TEXTURE, vec2(cxu_ + (UV.x - cxu_) / (1.0 - tk_), UV.y)) * vcol;
     }
@@ -1426,7 +1510,7 @@ void fragment() {
         m2 = max(m2, patch * 0.55 * fresh * flush_amt);
         m = clamp(max(m, blot * 0.75) + tint * 0.35, 0.0, 1.0) * blood_amt * (1.0 - 0.7 * blood_blur);   // 原本雞雞上的血慢慢淡掉
         m = max(m, m2);
-        c.rgb = mix(c.rgb, vec3(0.86, 0.07, 0.10), m * 0.9);
+        c.rgb = mix(c.rgb, vec3(0.80, 0.04, 0.07), clamp(m * 1.35, 0.0, 1.0));   // 血：不透明度加強
     }
     {
         // 插入時入口的淡淡紅暈（不論是不是處、持續維持、漸入漸出）
@@ -1436,6 +1520,40 @@ void fragment() {
         halo *= 1.0 - smoothstep(50.0, 140.0, abs(hp.x - 998.0));
         halo *= 0.6 + 0.4 * bnoise(vec2(hp.x, hd) * 0.03);
         c.rgb = mix(c.rgb, vec3(0.95, 0.25, 0.30), halo * 0.22 * flush_amt);
+    }
+    {
+        // 入口的接觸陰影：雞雞從入口往下一小段稍微變暗、漸層消失（像是從裡面冒出來的，不是貼上去的另一張圖）
+        vec2 sp_ = UV / TEXTURE_PIXEL_SIZE;
+        float sd_ = sp_.y - junction_px - arch_v * dx * dx / TEXTURE_PIXEL_SIZE.y;
+        float sh_ = (1.0 - smoothstep(0.0, 80.0, sd_)) * smoothstep(-6.0, 6.0, sd_);
+        sh_ *= 1.0 - smoothstep(70.0, 150.0, abs(sp_.x - 998.0));
+        c.rgb *= 1.0 - 0.16 * sh_ * flush_amt;
+    }
+    if (gw_amt > 0.001 && sem_on < 0.5) {   // 射精後龜頭一帶白色暈染（只染在雞雞本體像素上，不改透明度）
+        vec2 gp_ = UV / TEXTURE_PIXEL_SIZE;
+        float gd_ = gp_.y - gw_from - arch_v * dx * dx / TEXTURE_PIXEL_SIZE.y;
+        float gn_ = 0.75 + 0.25 * bnoise(vec2(gp_.x, gd_) * 0.04 + 21.0);
+        float gm_ = (1.0 - smoothstep(0.0, gw_len, gd_)) * smoothstep(-10.0, 8.0, gd_) * gn_;
+        gm_ *= 1.0 - smoothstep(70.0, 150.0, abs(gp_.x - 998.0)) * 0.6;
+        c.rgb = mix(c.rgb, vec3(0.99, 0.98, 0.95) * vcol.rgb, clamp(gm_ * gw_amt, 0.0, 0.92));   // 白色也要乘上環境色（夜晚濾鏡），不然會比周圍亮
+    }
+    if (sem_on > 0.5) {   // 內射後雞雞上的精液圖層：從尖端到根部慢慢出現（只改這張圖自己的透明度，不會超出圖的範圍）
+        vec2 sq_ = UV / TEXTURE_PIXEL_SIZE;
+        float dj_ = sq_.y - junction_px - arch_v * dx * dx / TEXTURE_PIXEL_SIZE.y;   // 銜接線往下的距離
+        float rvEnd_ = sem_reveal * (sem_len + 60.0);
+        float rv_ = 1.0 - smoothstep(rvEnd_ - 60.0, rvEnd_, dj_ + 30.0);
+        c.a *= mix(rv_, 1.0, step(0.999, sem_reveal));
+    } else if (sem_pool > 0.001) {   // 銜接處聚集的白色：只染在雞雞本體已有的像素上（不改透明度），所以不會跑到雞雞外面
+        vec2 sq_ = UV / TEXTURE_PIXEL_SIZE;
+        float dj_ = sq_.y - junction_px - arch_v * dx * dx / TEXTURE_PIXEL_SIZE.y;
+        float xw_ = abs(sq_.x - 998.0);
+        float wide_ = 1.0 - smoothstep(40.0 + 80.0 * sem_spread, 95.0 + 130.0 * sem_spread, xw_);
+        float yc_ = 10.0 + sem_flow * 110.0;
+        float sig_ = 16.0 + 70.0 * sem_spread;
+        float band_ = exp(-((dj_ - yc_) * (dj_ - yc_)) / (sig_ * sig_)) * smoothstep(-4.0, 3.0, dj_);
+        float nz_ = 0.6 + 0.4 * bnoise(vec2(sq_.x, dj_) * (0.05 - 0.03 * sem_spread) + 11.0);
+        float pm_ = clamp(band_ * wide_ * nz_ * sem_pool, 0.0, 0.9);
+        c.rgb = mix(c.rgb, vec3(0.98, 0.97, 0.93), pm_);
     }
     if (debug_on > 0.5) {
         // F1「查看裁切範圍」：被裁掉的部分不隱藏，改成半透明紅色顯示
@@ -1451,6 +1569,11 @@ void fragment() {
         _jijiClipMat.SetShaderParameter("clip_v", 0f);
         j.Material = _jijiClipMat;
         // 精液跟雞雞同一張畫布、同一個位移和旋轉 → 共用同一個裁切材質，一起被裁切
-        if (Layers.TryGetValue("精液", out var sm) && sm != null) sm.Material = _jijiClipMat;
+        if (Layers.TryGetValue("精液", out var sm) && sm != null)
+        {
+            _jijiSemMat = new ShaderMaterial { Shader = sh };   // 精液自己一份材質（同一支 shader、每幀複製裁切參數），才能單獨做出現／聚集／暈開
+            _jijiSemMat.SetShaderParameter("sem_on", 1f);
+            sm.Material = _jijiSemMat;
+        }
     }
 }
